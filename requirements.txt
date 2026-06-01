@@ -1,5 +1,35 @@
+# JagDash dependencies
+#
+# Install with:
+#   python -m pip install -r requirements.txt
+#
+# Always use "python -m pip" not bare "pip" to ensure you're installing
+# into the active virtual environment and not the system Python.
+#
+# --- Original Streamlit stack (keep until migration complete) ---
 streamlit
 pandas
 numpy
 yfinance
 pyyaml
+
+# --- FastAPI stack ---
+# fastapi: the web framework
+# uvicorn: the ASGI server that actually listens for HTTP connections.
+#   ASGI (Asynchronous Server Gateway Interface) is the async successor
+#   to WSGI. You don't interact with it directly; FastAPI uses it.
+#   [standard] installs uvicorn with optional speedups (httptools, uvloop).
+fastapi
+uvicorn[standard]
+
+# jinja2: HTML templating engine used by FastAPI to render .html files
+jinja2
+
+# python-dotenv: reads .env file and loads variables into os.environ
+python-dotenv
+
+# python-multipart: required for FastAPI to parse HTML form POST bodies.
+#   Without this, Form(...) parameters in route handlers won't work.
+#   This is a separate package because not every FastAPI app uses forms —
+#   many are pure JSON APIs. We use forms for HTMX submissions.
+python-multipart

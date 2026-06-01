@@ -1,8 +1,65 @@
-# Environments
-jagdash_env/
-env/
-.env
+# .gitignore for JagDash
+#
+# Lines starting with # are comments.
+# Patterns are matched against file paths relative to the repo root.
+# * matches anything except a slash. ** matches across directories.
 
-# Python cache
+# --- Secrets (NEVER commit these) ---
+.env
+*.env
+# If you add other secret files, add them here immediately
+
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]           # .pyc, .pyo, .pyd — compiled Python bytecode
+*.pyo
+*.pyd
+*.so                # compiled C extensions
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# --- Virtual environments ---
+jagdash_env/
+venv/
+env/
+.venv/
+ENV/
+
+# --- Testing ---
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Editors ---
+# Sublime Text
+*.sublime-workspace  # contains session state, not useful to share
+# *.sublime-project  # you may want to share this — remove # if so
+
+# VS Code
+.vscode/
+
+# JetBrains (PyCharm, etc.)
+.idea/
+
+# Vim
+*.swp
+*.swo
+
+# --- OS files ---
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db          # Windows
+
+# --- Logs ---
+*.log
+logs/
+
+# --- JagDash runtime files ---
+# jagdash_profiles.json contains user config but no secrets after cleanup.
+# Keep it in git so the default profile is version-controlled.
+# If it ever contains secrets again, add it here.

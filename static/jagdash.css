@@ -1,0 +1,788 @@
+/*
+ * jagdash.css — JagDash main stylesheet
+ *
+ * STRUCTURE OF THIS FILE:
+ *   1. CSS Custom Properties (variables) — THE THEME SYSTEM
+ *   2. Reset & base styles
+ *   3. Layout (Grid, sidebar, main content)
+ *   4. Sidebar & navigation
+ *   5. Plugin panels & headers
+ *   6. Form controls (inputs, selects, buttons)
+ *   7. Data display (tables, metric cards)
+ *   8. Loading indicators
+ *   9. Utility classes
+ *  10. Responsive breakpoints (mobile)
+ *
+ * HOW THE THEME SYSTEM WORKS:
+ *   CSS custom properties are defined on :root (the <html> element).
+ *   They look like: --property-name: value;
+ *   They're used anywhere with: var(--property-name)
+ *   
+ *   Change a value in Section 1 and it updates everywhere automatically.
+ *   The theme editor plugin will write new values here (or inject an
+ *   overriding <style> block) to change the look without touching the
+ *   rest of the file.
+ *
+ *   Naming convention: --category-property
+ *   Examples: --color-bg, --space-md, --font-size-base
+ */
+
+
+/* ============================================================
+   1. CSS CUSTOM PROPERTIES — THEME VARIABLES
+   ============================================================
+   
+   These are the knobs. Change these values to restyle the entire app.
+   The theme editor will manipulate these.
+   
+   Color naming convention used here:
+     bg = background
+     fg = foreground (text)
+     accent = highlight / interactive color
+     surface = a raised element (card, panel) on top of the background
+     border = lines between things
+     muted = de-emphasized text or elements
+*/
+
+:root {
+    /* --- Colors --- */
+    --color-bg:             #0d1117;   /* page background */
+    --color-surface:        #161b22;   /* cards, panels, sidebar */
+    --color-surface-raised: #21262d;   /* hover states, slightly elevated elements */
+    --color-border:         #30363d;   /* lines, dividers */
+    --color-fg:             #e6edf3;   /* primary text */
+    --color-fg-muted:       #8b949e;   /* secondary / de-emphasized text */
+    --color-accent:         #58a6ff;   /* links, active states, highlights */
+    --color-accent-hover:   #79c0ff;   /* accent on hover */
+    --color-success:        #3fb950;   /* positive values, success messages */
+    --color-warning:        #d29922;   /* warnings */
+    --color-error:          #f85149;   /* errors */
+    --color-price-up:       #3fb950;   /* price went up */
+    --color-price-down:     #f85149;   /* price went down */
+
+    /* --- Typography --- */
+    --font-family:          'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-family-mono:     'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --font-size-base:       14px;      /* base size — everything scales from this */
+    --font-size-sm:         12px;
+    --font-size-lg:         16px;
+    --font-size-xl:         20px;
+    --font-size-2xl:        24px;
+    --font-weight-normal:   400;
+    --font-weight-medium:   500;
+    --font-weight-bold:     600;
+    --line-height:          1.5;
+
+    /* --- Spacing ---
+       A consistent spacing scale prevents the "random margin/padding
+       everywhere" problem that makes UIs feel cluttered.
+       
+       These are the ONLY spacing values used in this file.
+       If you want tighter layout, reduce --space-md and --space-lg.
+       If you want more breathing room, increase them.
+       
+       xs  = tiny gaps inside components (icon to label, etc.)
+       sm  = gaps between related elements (label to input)
+       md  = gaps between components (input to input, card padding)
+       lg  = gaps between sections
+       xl  = major layout gaps (sidebar padding, content padding)
+       2xl = page-level spacing
+    */
+    --space-xs:   4px;
+    --space-sm:   8px;
+    --space-md:   12px;
+    --space-lg:   20px;
+    --space-xl:   28px;
+    --space-2xl:  40px;
+
+    /* --- Layout dimensions --- */
+    --sidebar-width:        220px;     /* sidebar fixed width on desktop */
+    --sidebar-width-mobile: 100%;      /* sidebar full width on mobile */
+    --content-max-width:    1200px;    /* max width of the content area */
+    --header-height:        56px;      /* top bar height if we add one later */
+
+    /* --- Borders & Radius ---
+       border-radius controls how rounded corners are.
+       0 = sharp corners (technical, dense feel)
+       4-6px = slight rounding (modern, clean)
+       8px+ = pill-like (friendly, consumer)
+    */
+    --border-width:         1px;
+    --border-radius-sm:     4px;
+    --border-radius-md:     6px;
+    --border-radius-lg:     10px;
+
+    /* --- Transitions ---
+       Controls animation speed for hover effects, etc.
+       150ms feels snappy. 300ms feels smooth. >400ms feels slow.
+    */
+    --transition-fast:      150ms ease;
+    --transition-normal:    250ms ease;
+}
+
+
+/* ============================================================
+   2. RESET & BASE STYLES
+   ============================================================
+   
+   Browsers have built-in default styles that differ between Chrome,
+   Firefox, Safari, etc. A "reset" removes those defaults so we start
+   from a consistent baseline.
+   
+   box-sizing: border-box is critical:
+     DEFAULT (content-box): width = content only. Padding and border add on top.
+       A 200px element with 10px padding is actually 220px wide. Confusing.
+     border-box: width = total including padding and border.
+       A 200px element with 10px padding is 200px wide, content is 180px. Sane.
+*/
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: var(--font-size-base);
+    /* 
+       Setting font-size on html enables rem units throughout.
+       1rem = whatever --font-size-base is.
+       This makes the entire app scale by changing one variable.
+    */
+}
+
+body {
+    font-family: var(--font-family);
+    font-size: 1rem;
+    font-weight: var(--font-weight-normal);
+    line-height: var(--line-height);
+    color: var(--color-fg);
+    background-color: var(--color-bg);
+    min-height: 100vh;
+    /* 
+       100vh = 100% of the viewport height.
+       This ensures the background color fills the screen even if content is short.
+    */
+}
+
+/* Remove default list styling (bullets, indentation) */
+ul, ol {
+    list-style: none;
+}
+
+/* Make images responsive by default */
+img {
+    max-width: 100%;
+    display: block;
+}
+
+/* Buttons don't inherit font by default in all browsers */
+button, input, select, textarea {
+    font-family: inherit;
+    font-size: inherit;
+}
+
+
+/* ============================================================
+   3. LAYOUT — CSS GRID
+   ============================================================
+   
+   CSS Grid explanation:
+   
+   display: grid    — activates grid layout on this element
+   grid-template-columns: defines the column sizes
+   grid-template-rows:    defines the row sizes
+   
+   For our layout:
+     [sidebar] | [main content]
+   
+   "var(--sidebar-width) 1fr" means:
+     Column 1: fixed width (sidebar)
+     Column 2: "1 fraction" = take all remaining space
+   
+   fr units are like mixing channel faders — they divide the remaining
+   space proportionally. "1fr 1fr" would give two equal columns.
+   "1fr 3fr" would give 25% and 75%.
+*/
+
+.layout {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr;
+    grid-template-rows: 100vh;  /* full viewport height */
+    overflow: hidden;           /* prevent double scrollbars */
+}
+
+
+/* ============================================================
+   4. SIDEBAR & NAVIGATION
+   ============================================================ */
+
+.sidebar {
+    background-color: var(--color-surface);
+    border-right: var(--border-width) solid var(--color-border);
+    display: flex;
+    flex-direction: column;     /* stack children vertically */
+    overflow-y: auto;           /* scroll if content overflows */
+    height: 100vh;
+}
+
+.sidebar-header {
+    padding: var(--space-lg) var(--space-md);
+    border-bottom: var(--border-width) solid var(--color-border);
+    flex-shrink: 0;             /* don't shrink when sidebar is short */
+}
+
+.dashboard-title {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;    /* show "..." if title is too long */
+}
+
+.plugin-nav {
+    padding: var(--space-md) var(--space-sm);
+    flex: 1;                    /* take remaining vertical space */
+}
+
+.nav-label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: var(--space-sm) var(--space-sm) var(--space-xs);
+}
+
+.nav-btn {
+    display: block;             /* full-width block instead of inline */
+    width: 100%;
+    text-align: left;
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-xs);
+    background: transparent;
+    border: none;
+    border-radius: var(--border-radius-md);
+    color: var(--color-fg-muted);
+    cursor: pointer;
+    transition: background-color var(--transition-fast),
+                color var(--transition-fast);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.nav-btn:hover {
+    background-color: var(--color-surface-raised);
+    color: var(--color-fg);
+}
+
+/* Active state — set by JavaScript after HTMX loads a plugin */
+.nav-btn.active {
+    background-color: var(--color-surface-raised);
+    color: var(--color-accent);
+    font-weight: var(--font-weight-medium);
+}
+
+.sidebar-footer {
+    padding: var(--space-md);
+    border-top: var(--border-width) solid var(--color-border);
+    flex-shrink: 0;
+}
+
+.version-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+}
+
+
+/* ============================================================
+   5. MAIN CONTENT AREA & PLUGIN PANELS
+   ============================================================ */
+
+.main-content {
+    overflow-y: auto;           /* main content area scrolls independently */
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The #main-content div that HTMX loads into */
+#main-content {
+    flex: 1;
+    padding: var(--space-xl);
+    max-width: var(--content-max-width);
+}
+
+.welcome-msg {
+    padding: var(--space-2xl);
+    text-align: center;
+    color: var(--color-fg-muted);
+}
+
+.welcome-msg h2 {
+    font-size: var(--font-size-xl);
+    margin-bottom: var(--space-md);
+    color: var(--color-fg);
+}
+
+/* Plugin panel — the root container for each plugin's UI */
+.plugin-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);       /* consistent spacing between children */
+}
+
+.plugin-header {
+    border-bottom: var(--border-width) solid var(--color-border);
+    padding-bottom: var(--space-md);
+}
+
+.plugin-header h2 {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-fg);
+}
+
+.plugin-subtitle {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+    margin-top: var(--space-xs);
+}
+
+.plugin-no-ui {
+    color: var(--color-fg-muted);
+    padding: var(--space-xl);
+}
+
+
+/* ============================================================
+   6. FORM CONTROLS
+   ============================================================ */
+
+.plugin-controls {
+    background-color: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    padding: var(--space-lg);
+}
+
+/* 
+   Flexbox row for control groups.
+   flex-wrap: wrap means items flow to the next line if they don't fit.
+   This is how the controls row becomes responsive automatically —
+   on wide screens, all controls are in one row;
+   on narrow screens, they wrap to multiple rows.
+*/
+.controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    align-items: flex-end;  /* align bottoms, so label+input groups line up */
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 120px;       /* minimum before wrapping */
+    flex: 1;                /* grow to fill available space */
+}
+
+/* Button control group doesn't need to grow as much */
+.control-group--btn {
+    flex: 0 0 auto;         /* don't grow or shrink, use natural width */
+    min-width: unset;
+}
+
+label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-fg-muted);
+}
+
+.text-input,
+.select-input {
+    background-color: var(--color-bg);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    color: var(--color-fg);
+    padding: var(--space-sm) var(--space-md);
+    width: 100%;
+    transition: border-color var(--transition-fast);
+    /* Remove the default OS appearance on selects in some browsers */
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+/* Custom dropdown arrow for select elements */
+.select-input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b949e' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--space-md) center;
+    padding-right: var(--space-2xl);
+}
+
+.text-input:focus,
+.select-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    /* 
+       box-shadow for focus ring — more accessible than outline: none alone.
+       This gives a visible focus indicator (important for keyboard navigation)
+       while looking better than the default browser outline.
+    */
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+}
+
+/* Buttons */
+.btn {
+    padding: var(--space-sm) var(--space-lg);
+    border: none;
+    border-radius: var(--border-radius-md);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background-color var(--transition-fast),
+                transform var(--transition-fast);
+    white-space: nowrap;
+}
+
+.btn:active {
+    transform: translateY(1px);  /* subtle press effect */
+}
+
+.btn--primary {
+    background-color: var(--color-accent);
+    color: #000000;
+}
+
+.btn--primary:hover {
+    background-color: var(--color-accent-hover);
+}
+
+.btn--secondary {
+    background-color: var(--color-surface-raised);
+    color: var(--color-fg);
+    border: var(--border-width) solid var(--color-border);
+}
+
+.btn--secondary:hover {
+    background-color: var(--color-border);
+}
+
+
+/* ============================================================
+   7. DATA DISPLAY — TABLES & METRIC CARDS
+   ============================================================ */
+
+/* Metric cards — the summary numbers at top of results */
+.results-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.metric-card {
+    background-color: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    padding: var(--space-md) var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 120px;
+}
+
+.metric-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+    font-weight: var(--font-weight-medium);
+}
+
+.metric-value {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-fg);
+    font-family: var(--font-family-mono);
+}
+
+.metric-value--price {
+    color: var(--color-success);
+}
+
+/* Data table */
+.table-wrapper {
+    overflow-x: auto;   /* horizontal scroll on narrow screens */
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;     /* merge adjacent cell borders */
+    font-size: var(--font-size-sm);
+    font-family: var(--font-family-mono);
+}
+
+.data-table thead {
+    background-color: var(--color-surface);
+    position: sticky;   /* header stays visible when scrolling down */
+    top: 0;
+    z-index: 1;
+}
+
+.data-table th {
+    padding: var(--space-sm) var(--space-md);
+    text-align: left;
+    font-weight: var(--font-weight-medium);
+    color: var(--color-fg-muted);
+    border-bottom: var(--border-width) solid var(--color-border);
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: var(--space-xs) var(--space-md);
+    border-bottom: var(--border-width) solid var(--color-border);
+    color: var(--color-fg);
+}
+
+/* Zebra striping — alternating row backgrounds */
+.data-table tbody tr:nth-child(even) {
+    background-color: var(--color-surface);
+}
+
+.data-table tbody tr:hover {
+    background-color: var(--color-surface-raised);
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;    /* no border on last row */
+}
+
+.td-num {
+    text-align: right;      /* numbers always right-aligned */
+}
+
+.td-close {
+    font-weight: var(--font-weight-medium);
+    color: var(--color-accent);
+}
+
+.td-date {
+    color: var(--color-fg-muted);
+}
+
+.td-volume {
+    color: var(--color-fg-muted);
+}
+
+.table-note {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+    padding: var(--space-sm) var(--space-md);
+    text-align: right;
+}
+
+.results-area {
+    min-height: 100px;
+}
+
+.placeholder-msg {
+    color: var(--color-fg-muted);
+    padding: var(--space-xl);
+    text-align: center;
+}
+
+
+/* ============================================================
+   8. LOADING INDICATORS
+   ============================================================
+   
+   HTMX adds class "htmx-request" to elements with hx-indicator
+   while a request is in flight.
+   
+   We use opacity transitions to show/hide smoothly.
+   display: none / block causes layout shifts; opacity doesn't.
+   pointer-events: none prevents clicking through an invisible element.
+*/
+
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity var(--transition-normal);
+    pointer-events: none;
+}
+
+/* When HTMX is making a request, make the indicator visible */
+.htmx-request.htmx-indicator {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Top-of-page loading bar (slim progress bar at top of main content) */
+.loading-bar {
+    height: 3px;
+    background: linear-gradient(
+        to right,
+        var(--color-accent),
+        var(--color-accent-hover),
+        var(--color-accent)
+    );
+    background-size: 200% 100%;
+    animation: loading-slide 1.2s ease infinite;
+    flex-shrink: 0;
+}
+
+@keyframes loading-slide {
+    0%   { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+
+/* Inline loading text */
+.loading-inline {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+    padding: var(--space-md);
+    text-align: center;
+}
+
+
+/* ============================================================
+   9. UTILITY CLASSES & MESSAGES
+   ============================================================ */
+
+.error-msg {
+    background-color: rgba(248, 81, 73, 0.1);
+    border: var(--border-width) solid var(--color-error);
+    border-radius: var(--border-radius-md);
+    color: var(--color-error);
+    padding: var(--space-md) var(--space-lg);
+}
+
+.success-msg {
+    background-color: rgba(63, 185, 80, 0.1);
+    border: var(--border-width) solid var(--color-success);
+    border-radius: var(--border-radius-md);
+    color: var(--color-success);
+    padding: var(--space-md) var(--space-lg);
+}
+
+.results-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+
+/* ============================================================
+   10. RESPONSIVE BREAKPOINTS
+   ============================================================
+   
+   @media queries apply CSS rules only when conditions are met.
+   (max-width: 768px) means "when the viewport is 768px wide or less."
+   768px is a common tablet/phone boundary.
+   
+   The pattern:
+   - Write your desktop styles first (above)
+   - Override them for smaller screens here
+   
+   This is "desktop-first" responsive design.
+   The alternative is "mobile-first" (write mobile styles first, override for desktop).
+   Both work; desktop-first is easier when migrating an existing desktop app.
+*/
+
+@media (max-width: 768px) {
+    /*
+       On mobile, switch from side-by-side grid to stacked layout.
+       The sidebar goes on top, main content below.
+       grid-template-columns: 1fr means one column, full width.
+       grid-template-rows: auto 1fr means sidebar takes its natural height,
+       content takes remaining space.
+    */
+    .layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+        height: auto;
+        overflow: visible;
+    }
+
+    .sidebar {
+        height: auto;
+        overflow: visible;
+        border-right: none;
+        border-bottom: var(--border-width) solid var(--color-border);
+    }
+
+    /* On mobile, show plugin buttons in a horizontal scrolling row */
+    .plugin-nav {
+        padding: var(--space-sm);
+    }
+
+    .nav-btn {
+        display: inline-block;
+        width: auto;
+        white-space: nowrap;
+    }
+
+    /* Horizontal scrolling nav on mobile */
+    .plugin-nav > :last-child {
+        display: flex;
+        flex-direction: row;
+        overflow-x: auto;
+        gap: var(--space-xs);
+        padding-bottom: var(--space-sm);
+        /* Hide scrollbar visually but keep functionality */
+        scrollbar-width: none;
+    }
+
+    .main-content {
+        height: auto;
+    }
+
+    #main-content {
+        padding: var(--space-md);
+    }
+
+    /* Stack controls vertically on mobile */
+    .controls-row {
+        flex-direction: column;
+    }
+
+    .control-group {
+        width: 100%;
+        min-width: unset;
+    }
+
+    .control-group--btn .btn {
+        width: 100%;
+    }
+
+    /* Summary metrics wrap tightly on mobile */
+    .metric-card {
+        min-width: calc(50% - var(--space-sm));
+        flex: 1;
+    }
+
+    /* Reduce table font size on mobile to fit more columns */
+    .data-table {
+        font-size: 11px;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: var(--space-xs) var(--space-sm);
+    }
+}
+
+/* Very small screens (phones in portrait) */
+@media (max-width: 480px) {
+    :root {
+        --font-size-base: 13px;   /* slightly smaller base font */
+        --space-xl: 16px;          /* tighter content padding */
+    }
+
+    .metric-card {
+        min-width: 100%;          /* full width on very small screens */
+    }
+}

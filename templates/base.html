@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<!--
+    base.html — JagDash page shell
+
+    This file is a Jinja2 template. Jinja2 syntax uses double-curly-braces
+    for variables and curly-percent for control flow (loops, conditionals).
+    IMPORTANT: do not write Jinja2 tag syntax inside HTML comments —
+    Jinja2 processes those tags even inside comments, before the browser
+    ever sees the file. Use plain English descriptions here instead.
+
+    This file defines the overall page structure:
+    the sidebar, the main content area, and the CSS/JS includes.
+    Individual plugin UIs get loaded into #main-content by HTMX.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    
+    <!--
+        viewport meta tag — CRITICAL for mobile.
+        Without this, mobile browsers render the page at desktop width
+        and then zoom out, making everything tiny. This tells the browser
+        to use the actual device width as the viewport width.
+        initial-scale=1.0 means no zoom on load.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <title>{{ dashboard_name }}</title>
+    
+    <!-- Our CSS file. /static/ is served by FastAPI's StaticFiles mount. -->
+    <link rel="stylesheet" href="/static/jagdash.css">
+    
+    <!--
+        HTMX — loaded from a CDN (Content Delivery Network) for now.
+        A CDN serves the file from servers geographically close to the user,
+        and browsers often already have it cached from other sites.
+        We can switch to a local copy later by downloading htmx.min.js
+        into static/ and changing this to /static/htmx.min.js.
+        
+        The integrity= attribute is Subresource Integrity (SRI) — the browser
+        checks that the file matches this hash before executing it.
+        This protects against CDN compromise. Good security habit.
+    -->
+    <!--
+        HTMX served locally from static/ — no CDN dependency.
+        This works offline, on a private server, and never has integrity issues.
+        To update HTMX version: download the new htmx.min.js and replace the file.
+    -->
+    <script src="/static/htmx.min.js"></script>
+</head>
+
+<body>
+    <!--
+        CSS Grid layout. The .layout div uses display:grid defined in jagdash.css.
+        Grid lets us define rows and columns, then place elements into them.
+        Unlike the old HTML table-based layouts (which were a hack),
+        or float-based layouts (also a hack), Grid is designed for this purpose.
+        
+        On desktop: sidebar left, main content right.
+        On mobile: CSS media query in jagdash.css switches to single column.
+    -->
+    <div class="layout">
+        
+        <!-- ============================================================
+             SIDEBAR
+             ============================================================ -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="dashboard-title">{{ dashboard_name }}</h1>
+            </div>
+            
+            <nav class="plugin-nav">
+                <p class="nav-label">Plugins</p>
+                
+                <!--
+                    Jinja2 for loop — renders one button per loaded plugin.
+                    {{ plugins }} was passed in from main.py's route handler.
+                    
+                    HTMX attributes on each button:
+                    hx-get="/plugin/market_data"  — make a GET request to this URL when clicked
+                    hx-target="#main-content"     — put the response into this element
+                    hx-push-url="true"            — update the browser's URL bar (enables bookmarking)
+                    hx-swap="innerHTML"           — replace the inner HTML of the target
+                    
+                    hx-swap options: innerHTML (default), outerHTML, beforeend, afterend, etc.
+                    innerHTML replaces everything inside the target element.
+                    outerHTML replaces the target element itself.
+                -->
+                {% for plugin in plugins %}
+                <button 
+                    class="nav-btn"
+                    hx-get="/plugin/{{ plugin }}"
+                    hx-target="#main-content"
+                    hx-push-url="true"
+                    hx-swap="innerHTML"
+                    hx-indicator="#loading-indicator"
+                >
+                    {{ plugin }}
+                </button>
+                {% endfor %}
+            </nav>
+            
+            <div class="sidebar-footer">
+                <p class="version-label">JagDash</p>
+            </div>
+        </aside>
+        
+        <!-- ============================================================
+             MAIN CONTENT AREA
+             ============================================================ -->
+        <main class="main-content">
+            
+            <!--
+                Loading indicator.
+                HTMX adds the CSS class "htmx-request" to this element
+                while a request is in flight. We use CSS to show/hide it:
+                    .htmx-indicator { opacity: 0 }
+                    .htmx-request.htmx-indicator { opacity: 1 }
+                This gives us a loading state with zero JavaScript.
+            -->
+            <div id="loading-indicator" class="htmx-indicator loading-bar"></div>
+            
+            <!--
+                This is where plugin UIs get loaded.
+                HTMX responses from /plugin/{name} land here.
+                The id="main-content" is what hx-target="#main-content" targets.
+            -->
+            <div id="main-content">
+                <div class="welcome-msg">
+                    <h2>Welcome to {{ dashboard_name }}</h2>
+                    <p>Select a plugin from the sidebar to get started.</p>
+                </div>
+            </div>
+            
+        </main>
+        
+    </div><!-- end .layout -->
+    
+    <!--
+        Small inline script for things HTMX can't do alone.
+        We keep this minimal — only what HTMX genuinely can't handle.
+        
+        This one: highlight the active sidebar button after HTMX loads a plugin.
+        htmx:afterSwap fires after HTMX puts content into the page.
+        We find the button that triggered the swap and add "active" class to it,
+        removing it from any previously active button.
+    -->
+    <script>
+        document.addEventListener("htmx:afterSwap", function(evt) {
+            // evt.detail.target is the element that received new content
+            // We want to highlight the sidebar button that triggered this
+            const trigger = evt.detail.requestConfig && evt.detail.requestConfig.elt;
+            if (trigger && trigger.classList.contains("nav-btn")) {
+                document.querySelectorAll(".nav-btn").forEach(btn => {
+                    btn.classList.remove("active");
+                });
+                trigger.classList.add("active");
+            }
+        });
+    </script>
+    
+</body>
+</html>
