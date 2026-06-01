@@ -1,0 +1,71 @@
+# strategies/bb_mean_reversion.yaml
+#
+# Bollinger Band Mean Reversion with RSI Confirmation
+# ----------------------------------------------------
+# Source: John Bollinger, "Bollinger on Bollinger Bands" (2001)
+# See also: Investopedia — "Bollinger Bands"
+#
+# Bollinger Bands place an upper and lower envelope around price based on
+# standard deviation from a moving average. When price touches or pierces the
+# lower band, it has moved unusually far below the mean — a potential snap-back.
+# When it touches the upper band, it has moved unusually far above the mean.
+#
+# This strategy adds RSI as a second confirmation gate. The logic:
+# price alone at a band is not enough — the market could be in a strong trend
+# and just walking the band. RSI confirms whether momentum has actually exhausted.
+#
+# HOW IT DIFFERS FROM THE BUILT-IN "RSI Mean Reversion":
+#   Built-in: RSI alone, no price location context.
+#   This strategy: RSI + price must be at the band simultaneously.
+#   Result: fewer signals, but each one has two independent confirmations.
+#
+# SIGNAL LOGIC:
+#   BUY:  close is at or below the lower band  AND  RSI is below 40
+#         (price has stretched downward AND momentum is exhausted)
+#   SELL: close is at or above the upper band  AND  RSI is above 60
+#         (price has stretched upward  AND momentum is exhausted)
+#   HOLD: price is inside the bands, or RSI is not confirming
+#
+# TUNING NOTES:
+#   RSI thresholds of 40/60 (vs the classic 30/70) are intentionally moderate.
+#   Waiting for RSI 30 while also requiring price at the lower band would be
+#   extremely rare in practice — too few signals to be useful.
+#   Adjust period and std to widen or narrow the bands for different assets.
+
+name: "BB Mean Reversion"
+type: "Mean-reversion / Dual confirmation"
+min_candles: 35
+
+description: >
+  Requires price to touch a Bollinger Band AND RSI to confirm exhaustion —
+  two independent signals must agree before acting. The built-in RSI Mean
+  Reversion fires on RSI alone; this strategy is more selective. Buy when
+  price reaches the lower band (unusually far below mean) and RSI is below 40
+  (momentum exhausted). Sell at the upper band with RSI above 60.
+  Based on John Bollinger's original work. RSI thresholds are intentionally
+  moderate (40/60) — waiting for 30/70 while also at a band would be too rare.
+
+indicators:
+  rsi:      { type: rsi,      period: 14 }
+  bb_upper: { type: bb_upper, period: 20, std: 2.0 }
+  bb_lower: { type: bb_lower, period: 20, std: 2.0 }
+  close:    { type: close }
+
+rules:
+  # Buy: price at or below lower band AND RSI confirms oversold
+  - signal: BUY
+    when:
+      all:
+        - [close, "<=", bb_lower]
+        - [rsi,   "<",  40]
+
+  # Sell: price at or above upper band AND RSI confirms overbought
+  - signal: SELL
+    when:
+      all:
+        - [close, ">=", bb_upper]
+        - [rsi,   ">",  60]
+
+  # Inside the bands, or RSI not confirming — no edge
+  - signal: HOLD
+    default: true

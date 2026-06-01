@@ -1,0 +1,39 @@
+{
+    "active_profile": "default",
+    "profiles": {
+        "default": {
+            "dashboard_name": "NiteTrader - JagDash version",
+            "logo_path": "",
+            "theme": "default",
+            "plugins": {
+                "news_feed": {
+                    "enabled": true
+                },
+                "strategy_engine": {
+                    "enabled": true
+                },
+                "market_data": {
+                    "enabled": true
+                },
+                "alert_engine": {
+                    "enabled": true
+                },
+                "config_plugin": {
+                    "enabled": true
+                },
+                "news_scanner": {
+                    "enabled": true
+                },
+                "news_signal": {
+                    "enabled": true
+                },
+                "market_data_old": {
+                    "enabled": true
+                }
+            },
+            "api_keys": {
+                "newsapi": ""
+            }
+        }
+    }
+}

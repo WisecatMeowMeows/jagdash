@@ -1,0 +1,65 @@
+# strategies/rsi_ema_filter.yaml
+#
+# NiteTrader Declarative Strategy — YAML Format
+# -----------------------------------------------
+# This strategy combines RSI mean-reversion with an EMA trend filter.
+# The idea: only buy oversold conditions that occur in an uptrend.
+# This avoids "catching a falling knife" — buying something cheap
+# that keeps getting cheaper because the trend is down.
+#
+# No programming required. See strategies/README.md for the full
+# list of available indicators and condition operators.
+
+name: "RSI + EMA Trend Filter"
+type: "Mean-reversion with trend filter"
+description: >
+  Buys when RSI signals oversold (below 35) AND price is above the 50-period EMA,
+  confirming an uptrend. Sells when RSI is overbought (above 65) OR price drops
+  below the EMA. Avoids buying into a downtrend. More selective than plain RSI
+  — fewer signals, but higher quality.
+
+# --- Indicators -------------------------------------------
+# Each entry defines a named variable you can use in rules below.
+# The name on the left is yours to choose (no spaces).
+# "type" tells the engine what to compute.
+#
+# Available types: close, sma, ema, rsi, macd, macd_signal,
+#   bb_upper, bb_lower, bb_mid, rolling_high, rolling_low, atr, volume
+
+indicators:
+  rsi:    { type: rsi, period: 14 }
+  ema_50: { type: ema, period: 50 }
+  close:  { type: close }
+
+# --- Rules ------------------------------------------------
+# Evaluated top to bottom. The first rule whose condition is true wins.
+# Always end with a "default: true" rule as a catch-all.
+#
+# Condition format:  [variable_name, operator, value_or_variable]
+# Operators:  <  >  <=  >=  ==  !=
+# Right side: a number (30) or another variable name (ema_50)
+#
+# Combine conditions:
+#   all: [...]   every condition must be true (AND logic)
+#   any: [...]   at least one must be true    (OR logic)
+#
+# Valid signals: BUY  SELL  HOLD  WATCH
+
+rules:
+  # Buy when: RSI is oversold AND price is above the trend line
+  - signal: BUY
+    when:
+      all:
+        - [rsi,   "<",  35]
+        - [close, ">", ema_50]
+
+  # Sell when: RSI is overbought OR price has fallen below the trend line
+  - signal: SELL
+    when:
+      any:
+        - [rsi,   ">",  65]
+        - [close, "<", ema_50]
+
+  # Default: no clear signal
+  - signal: HOLD
+    default: true
