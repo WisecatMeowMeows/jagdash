@@ -1,0 +1,133 @@
+<!--
+    partials/strategy_engine.html
+    ui.symbol, ui.interval, ui.period restored from session.
+-->
+
+<div class="plugin-panel" id="panel-strategy">
+
+    <div class="plugin-header">
+        <h2>Strategy Engine</h2>
+        <p class="plugin-subtitle">Multi-strategy combined signal dashboard</p>
+    </div>
+
+    {% if errors %}
+    <div class="discovery-errors">
+        {% for filename, msg in errors.items() %}
+        <div class="{% if msg.startswith('Note:') %}info-msg{% else %}error-msg{% endif %}">
+            <strong>{{ filename }}</strong>: {{ msg }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form id="strategy-form"
+          hx-post="/plugin/strategy_engine/run"
+          hx-target="#strategy-results"
+          hx-swap="innerHTML"
+          hx-indicator="#strategy-loading">
+
+        <div class="config-card config-card--wide">
+            <h4 class="config-card-title">Data Parameters</h4>
+            <div class="controls-row">
+
+                <div class="control-group">
+                    <label for="se-symbol">Symbol</label>
+                    <input type="text"
+                           id="se-symbol"
+                           name="symbol"
+                           value="{{ ui.symbol }}"
+                           class="text-input">
+                </div>
+
+                <div class="control-group">
+                    <label for="se-interval">Interval</label>
+                    <select id="se-interval" name="interval" class="select-input">
+                        {% for opt in interval_options %}
+                        <option value="{{ opt }}" {% if opt == ui.interval %}selected{% endif %}>
+                            {{ opt }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="se-period">Period</label>
+                    <select id="se-period" name="period" class="select-input">
+                        {% for opt in period_options %}
+                        <option value="{{ opt }}" {% if opt == ui.period %}selected{% endif %}>
+                            {{ opt }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="config-card config-card--wide">
+            <h4 class="config-card-title">Strategies & Weights</h4>
+            <p class="section-note">
+                Enable strategies to include. Weight controls influence on combined signal (0.1–3.0).
+            </p>
+
+            <div class="strategy-list">
+                {% for strat in strategies %}
+                <div class="strategy-row">
+
+                    <label class="strategy-check-label">
+                        <input type="checkbox"
+                               name="selected_strategies"
+                               value="{{ strat.name }}"
+                               checked
+                               class="strategy-checkbox">
+                        <span class="strategy-name">
+                            {{ strat.name }}
+                            {% if strat.source != "built-in" %}
+                            <span class="source-badge">
+                                {% if strat.source == "external-python" %}📂{% else %}📄{% endif %}
+                            </span>
+                            {% endif %}
+                        </span>
+                    </label>
+
+                    <details class="strategy-info">
+                        <summary class="strategy-info-btn">ℹ</summary>
+                        <div class="strategy-info-panel">
+                            <strong>{{ strat.name }}</strong>
+                            {% if strat.type %}<br><em>{{ strat.type }}</em>{% endif %}
+                            {% if strat.description %}<p>{{ strat.description }}</p>{% endif %}
+                            {% if strat.min_candles %}<p class="info-meta">Min candles: {{ strat.min_candles }}</p>{% endif %}
+                            {% if strat.file %}<p class="info-meta">File: {{ strat.file }}</p>{% endif %}
+                        </div>
+                    </details>
+
+                    <div class="strategy-weight">
+                        <label class="weight-label">Weight</label>
+                        <input type="range"
+                               name="weight_{{ strat.name }}"
+                               min="0.1" max="3.0" step="0.1" value="1.0"
+                               class="weight-slider"
+                               oninput="this.nextElementSibling.textContent = parseFloat(this.value).toFixed(1)">
+                        <span class="weight-display">1.0</span>
+                    </div>
+
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn--primary btn--large">Run Analysis</button>
+        </div>
+
+    </form>
+
+    <div id="strategy-loading" class="htmx-indicator loading-inline">
+        Fetching data and running strategies…
+    </div>
+
+    <div id="strategy-results" class="results-area">
+        <p class="placeholder-msg">Results will appear here after running analysis.</p>
+    </div>
+
+</div>

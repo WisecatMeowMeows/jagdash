@@ -1,0 +1,49 @@
+<!--
+    partials/news_signal.html
+    Sentiment analysis on news headlines — bullish/bearish scoring.
+
+    Variables passed from main.py: none required (self-contained form)
+-->
+
+<div class="plugin-panel" id="panel-news-signal">
+
+    <div class="plugin-header">
+        <h2>News Signal Engine</h2>
+        <p class="plugin-subtitle">Sentiment scoring from recent headlines</p>
+    </div>
+
+    <form class="plugin-controls"
+          hx-post="/plugin/news_signal/fetch"
+          hx-target="#news-signal-results"
+          hx-swap="innerHTML"
+          hx-indicator="#news-signal-loading">
+
+        <div class="controls-row">
+
+            <div class="control-group">
+                <label for="signal-query">Asset / Topic</label>
+                <input type="text"
+                       id="signal-query"
+                       name="query"
+                       value="Bitcoin"
+                       class="text-input">
+            </div>
+
+            <div class="control-group control-group--btn">
+                <label>&nbsp;</label>
+                <button type="submit" class="btn btn--primary">Generate Signal</button>
+            </div>
+
+        </div>
+
+    </form>
+
+    <div id="news-signal-loading" class="htmx-indicator loading-inline">
+        Analyzing headlines…
+    </div>
+
+    <div id="news-signal-results" class="results-area">
+        <p class="placeholder-msg">Signal will appear here after analysis.</p>
+    </div>
+
+</div>

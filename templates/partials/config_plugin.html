@@ -1,0 +1,149 @@
+<!--
+    partials/config_plugin.html
+    Variables: profiles, active_profile, active_name, news_key_set,
+               theme, preset_names
+-->
+<div class="plugin-panel" id="panel-config">
+
+    <div class="plugin-header">
+        <h2>Dashboard Configuration</h2>
+        <p class="plugin-subtitle">Profiles, settings, appearance, and API keys</p>
+    </div>
+
+    <!-- ================================================================
+         PROFILE MANAGEMENT
+         ================================================================ -->
+    <section class="config-section">
+        <h3 class="section-title">Profile</h3>
+        <div class="config-row">
+            <div class="config-card">
+                <h4 class="config-card-title">Switch Profile</h4>
+                <form hx-post="/plugin/config/profile/load"
+                      hx-target="#config-feedback" hx-swap="innerHTML">
+                    <div class="control-group">
+                        <label for="profile-select">Active Profile</label>
+                        <select id="profile-select" name="profile_name" class="select-input">
+                            {% for p in profiles %}
+                            <option value="{{ p }}"
+                                {% if p == active_name %}selected{% endif %}>{{ p }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--primary">Load Profile</button>
+                    </div>
+                </form>
+            </div>
+            <div class="config-card">
+                <h4 class="config-card-title">New Profile</h4>
+                <form hx-post="/plugin/config/profile/create"
+                      hx-target="#config-feedback" hx-swap="innerHTML">
+                    <div class="control-group">
+                        <label for="new-profile-name">Profile Name</label>
+                        <input type="text" id="new-profile-name" name="profile_name"
+                               placeholder="e.g. MyTradingSetup" class="text-input">
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--secondary">Create Profile</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================================
+         DASHBOARD SETTINGS
+         ================================================================ -->
+    <section class="config-section">
+        <h3 class="section-title">Dashboard Settings</h3>
+        <div class="config-card config-card--wide">
+            <form hx-post="/plugin/config/settings/save"
+                  hx-target="#config-feedback" hx-swap="innerHTML">
+                <div class="controls-row">
+                    <div class="control-group">
+                        <label for="dashboard-name">Display Name</label>
+                        <input type="text" id="dashboard-name" name="dashboard_name"
+                               value="{{ active_profile.get('dashboard_name', 'JagDash') }}"
+                               class="text-input">
+                    </div>
+                    <div class="control-group">
+                        <label for="logo-path">Logo File Path</label>
+                        <input type="text" id="logo-path" name="logo_path"
+                               value="{{ active_profile.get('logo_path', '') }}"
+                               placeholder="e.g. static/logo.png" class="text-input">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <!-- ================================================================
+         APPEARANCE / THEME EDITOR
+         ================================================================ -->
+    <section class="config-section">
+        <h3 class="section-title">Appearance</h3>
+
+        <!-- Preset selector — loads preset values into the form below -->
+        <div class="config-card config-card--wide">
+            <h4 class="config-card-title">Preset Themes</h4>
+            <div class="preset-row">
+                {% for pname in preset_names %}
+                <button type="button"
+                        class="preset-btn {% if pname == theme.get('preset','dark') %}preset-btn--active{% endif %}"
+                        hx-post="/plugin/config/theme/preset"
+                        hx-vals='{"preset_name": "{{ pname }}"}'
+                        hx-target="#theme-form-area"
+                        hx-swap="innerHTML">
+                    {{ pname | replace("_", " ") | title }}
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Theme form — fields are replaced when a preset is selected -->
+        <div id="theme-form-area">
+            {% include "partials/theme_form.html" %}
+        </div>
+
+    </section>
+
+    <!-- ================================================================
+         API KEYS
+         ================================================================ -->
+    <section class="config-section">
+        <h3 class="section-title">API Keys</h3>
+        <p class="section-note">
+            Keys here override <code>.env</code> file values for the active profile.
+            Leave blank to keep the existing key.
+        </p>
+        <div class="config-card config-card--wide">
+            <form hx-post="/plugin/config/apikeys/save"
+                  hx-target="#config-feedback" hx-swap="innerHTML">
+                <div class="controls-row">
+                    <div class="control-group">
+                        <label for="newsapi-key">
+                            NewsAPI Key
+                            {% if news_key_set %}
+                            <span class="key-status key-status--set">● set</span>
+                            {% else %}
+                            <span class="key-status key-status--unset">● not set</span>
+                            {% endif %}
+                        </label>
+                        <input type="password" id="newsapi-key" name="newsapi_key"
+                               placeholder="Leave blank to keep existing key"
+                               class="text-input" autocomplete="off">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary">Save API Keys</button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <div id="config-feedback"></div>
+
+</div>

@@ -28,7 +28,8 @@ jinja2
 # python-dotenv: reads .env file and loads variables into os.environ
 python-dotenv
 
-# python-multipart: required for FastAPI to parse HTML form POST bodies.
+# itsdangerous: required by Starlette's SessionMiddleware for cookie signing
+itsdangerous
 #   Without this, Form(...) parameters in route handlers won't work.
 #   This is a separate package because not every FastAPI app uses forms —
 #   many are pure JSON APIs. We use forms for HTMX submissions.

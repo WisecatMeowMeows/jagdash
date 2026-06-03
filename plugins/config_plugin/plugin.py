@@ -9,7 +9,26 @@ def manifest():
         "requires": []
     }
 
+# ============================================================
+# GET UI CONTEXT
+# ============================================================
 
+def get_ui_context(context):
+    from theme_engine import get_theme, preset_names
+    profiles       = context.get_all_profiles()
+    active_profile = context.get_active_profile()
+    active_name    = profiles[0] if profiles else "default"
+    news_key       = context.get_api_key("newsapi")
+    theme          = get_theme(active_profile)
+    return {
+        "profiles":       profiles,
+        "active_profile": active_profile,
+        "active_name":    active_name,
+        "news_key_set":   bool(news_key),
+        "theme":          theme,
+        "preset_names":   preset_names(),
+    }
+    
 def render_ui(context):
     st.subheader("Dashboard Configuration")
 

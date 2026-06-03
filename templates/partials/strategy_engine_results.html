@@ -1,0 +1,149 @@
+<!--
+    partials/strategy_engine_results.html
+    Returned by POST /plugin/strategy_engine/run
+
+    Variables:
+        symbol          — string
+        combined        — dict: {signal, score, confidence}
+        signals         — dict: {strategy_name: signal_string}
+        weights         — dict: {strategy_name: float}
+        strategy_errors — dict: {strategy_name: error_string}
+        market_meta     — dict with candle_count, interval, period_str, etc.
+        error           — top-level error string or None
+        SIGNAL_SCORES   — dict mapping signal strings to numeric scores
+        BUY_THRESHOLD   — float
+        SELL_THRESHOLD  — float
+-->
+
+{% if error %}
+<div class="error-msg">{{ error }}</div>
+
+{% else %}
+
+<div class="results-content">
+
+    <!-- Market data receipt -->
+    <div class="market-receipt">
+        <h4 class="receipt-title">Market Data</h4>
+        <div class="results-summary">
+            <div class="metric-card">
+                <span class="metric-label">Symbol</span>
+                <span class="metric-value">{{ market_meta.get("symbol", symbol) }}</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Interval</span>
+                <span class="metric-value">{{ market_meta.get("interval", "—") }}</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Period</span>
+                <span class="metric-value">{{ market_meta.get("period_str", "—") }}</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Candles</span>
+                <span class="metric-value">{{ market_meta.get("candle_count", "?") }}</span>
+            </div>
+            {% if market_meta.get("price_last") %}
+            <div class="metric-card">
+                <span class="metric-label">Last Close</span>
+                <span class="metric-value metric-value--price">
+                    ${{ "%.4f" | format(market_meta.price_last) }}
+                </span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Combined signal hero -->
+    <div class="signal-hero signal-hero--{{ combined.signal | lower }}">
+        <div class="signal-hero-label">Combined Signal</div>
+        <div class="signal-hero-value">{{ combined.signal }}</div>
+        <div class="signal-hero-meta">
+            Score: {{ "%+.3f" | format(combined.score) }} &nbsp;|&nbsp;
+            Confidence: {{ "%.0f" | format(combined.confidence) }}%
+        </div>
+    </div>
+
+    <!-- Score bar: visual representation of score from -1 to +1 -->
+    <div class="score-bar-wrapper">
+        <!--
+            The bar fills from center (0) toward left (SELL) or right (BUY).
+            pct maps score from [-1, +1] to [0, 100] for CSS width.
+            score of 0 = 50%, score of +1 = 100%, score of -1 = 0%.
+        -->
+        {% set pct = [(combined.score + 1.0) / 2.0 * 100, 0] | max %}
+        {% set pct = [pct, 100] | min %}
+        <div class="score-bar-track">
+            <div class="score-bar-fill score-bar-fill--{{ combined.signal | lower }}"
+                 style="width: {{ pct | int }}%"></div>
+            <div class="score-bar-center"></div>
+        </div>
+        <div class="score-bar-labels">
+            <span>◀ SELL</span>
+            <span>HOLD</span>
+            <span>BUY ▶</span>
+        </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Per-strategy breakdown table -->
+    <h4 class="section-subtitle">Strategy Breakdown</h4>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Strategy</th>
+                    <th>Signal</th>
+                    <th class="td-num">Weight</th>
+                    <th class="td-num">Vote</th>
+                    <th class="td-num">Weighted</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for name, sig in signals.items() %}
+                {% set w = weights.get(name, 1.0) %}
+                {% set vote = signal_scores.get(sig, 0.0) %}
+                <tr>
+                    <td>
+                        {{ name }}
+                        {% if strategy_errors.get(name) %}
+                        <span class="warning-badge" title="{{ strategy_errors[name] }}">⚠️</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="signal-pill signal-pill--{{ sig | lower }}">
+                            {{ sig }}
+                        </span>
+                    </td>
+                    <td class="td-num">{{ "%.1f" | format(w) }}</td>
+                    <td class="td-num">{{ "%+.1f" | format(vote) }}</td>
+                    <td class="td-num">{{ "%+.2f" | format(vote * w) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Strategy warnings if any -->
+    {% if strategy_errors %}
+    <details class="warning-details">
+        <summary>⚠️ {{ strategy_errors | length }} strategy warning(s)</summary>
+        <div class="warning-list">
+            {% for name, msg in strategy_errors.items() %}
+            <div class="warning-item">
+                <strong>{{ name }}</strong>: {{ msg }} (defaulted to HOLD)
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+    <p class="table-note">
+        Thresholds: BUY &gt; {{ "%+.2f" | format(buy_threshold) }} &nbsp;|&nbsp;
+        SELL &lt; {{ "%+.2f" | format(sell_threshold) }}
+    </p>
+
+</div>
+{% endif %}

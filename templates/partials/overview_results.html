@@ -1,0 +1,90 @@
+<!--
+    partials/overview_results.html
+    Variables: symbol, news_query, interval, period, results dict, error
+-->
+{% if error %}
+<div class="error-msg">{{ error }}</div>
+{% else %}
+
+<div class="overview-grid">
+
+    <!-- ── Market Price card ── -->
+    <div class="ov-card">
+        <div class="ov-card-label">market_data</div>
+        {% set mp = results.get("market_price", {}) %}
+        {% if mp.get("error") %}
+            <div class="ov-card-error">{{ mp.error }}</div>
+        {% else %}
+            <div class="ov-card-title">{{ mp.symbol }}</div>
+            <div class="ov-card-primary">${{ "%.4f"|format(mp.price) }}</div>
+            <div class="ov-card-meta
+                {% if mp.pct_change > 0 %}ov-positive
+                {% elif mp.pct_change < 0 %}ov-negative
+                {% endif %}">
+                {% if mp.pct_change > 0 %}▲{% elif mp.pct_change < 0 %}▼{% else %}—{% endif %}
+                {{ "%.2f"|format(mp.pct_change | abs) }}%
+                over {{ mp.period }} ({{ mp.interval }})
+            </div>
+            <div class="ov-card-sub">{{ mp.candles }} candles</div>
+        {% endif %}
+    </div>
+
+    <!-- ── Strategy Signal card ── -->
+    <div class="ov-card">
+        <div class="ov-card-label">strategy_engine</div>
+        {% set st = results.get("strategy", {}) %}
+        {% if st.get("error") %}
+            <div class="ov-card-error">{{ st.error }}</div>
+        {% else %}
+            <div class="ov-card-title">{{ st.symbol }} Signal</div>
+            <div class="ov-card-primary signal-pill signal-pill--{{ st.signal|lower }}">
+                {{ st.signal }}
+            </div>
+            <div class="ov-card-meta">
+                Score: {{ "%+.3f"|format(st.score) }} &nbsp;|&nbsp;
+                Conf: {{ "%.0f"|format(st.confidence) }}%
+            </div>
+            <div class="ov-card-sub">{{ st.candles }} candles</div>
+        {% endif %}
+    </div>
+
+    <!-- ── News Signal card ── -->
+    <div class="ov-card">
+        <div class="ov-card-label">news_signal</div>
+        {% set ns = results.get("news_signal", {}) %}
+        {% if ns.get("error") %}
+            <div class="ov-card-error">{{ ns.error }}</div>
+        {% else %}
+            <div class="ov-card-title">{{ ns.query }}</div>
+            <div class="ov-card-primary signal-hero--{{ ns.signal|lower }}
+                         {% if ns.signal == 'BULLISH' %}ov-positive
+                         {% elif ns.signal == 'BEARISH' %}ov-negative{% endif %}">
+                {{ ns.signal }}
+            </div>
+            <div class="ov-card-meta">
+                Bull: {{ ns.bullish_total }} &nbsp;/&nbsp; Bear: {{ ns.bearish_total }}
+            </div>
+            <div class="ov-card-sub">{{ ns.article_count }} articles scanned</div>
+        {% endif %}
+    </div>
+
+    <!-- ── News Headlines card ── -->
+    <div class="ov-card ov-card--wide">
+        <div class="ov-card-label">news_feed</div>
+        {% set nh = results.get("news_headlines", {}) %}
+        {% if nh.get("error") %}
+            <div class="ov-card-error">{{ nh.error }}</div>
+        {% else %}
+            <div class="ov-card-title">Latest Headlines — {{ nh.query }}</div>
+            <ul class="ov-headlines">
+                {% for h in nh.headlines %}
+                <li class="ov-headline-item">{{ h }}</li>
+                {% else %}
+                <li class="ov-headline-item ov-card-sub">No headlines available.</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+
+</div><!-- end .overview-grid -->
+{% endif %}

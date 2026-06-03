@@ -1,0 +1,71 @@
+<!--
+    partials/news_scanner_results.html
+    Returned by POST /plugin/news_scanner/fetch
+
+    Variables:
+        query       — the search string used
+        articles    — list of article dicts from NewsAPI
+        error       — error message string, or None
+-->
+
+{% if error %}
+<div class="error-msg">{{ error }}</div>
+
+{% elif not articles %}
+<div class="placeholder-msg">No articles found for "{{ query }}".</div>
+
+{% else %}
+<div class="results-content">
+
+    <div class="results-summary">
+        <div class="metric-card">
+            <span class="metric-label">Query</span>
+            <span class="metric-value metric-value--sm">{{ query }}</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Articles Found</span>
+            <span class="metric-value">{{ articles | length }}</span>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table class="data-table news-table">
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Title</th>
+                    <th>Published</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for article in articles %}
+                <tr>
+                    <td class="td-source">
+                        {{ article.get("source", {}).get("name", "Unknown") }}
+                    </td>
+                    <td class="td-title">
+                        <!--
+                            Opens the article in a new browser tab.
+                            target="_blank" opens a new tab.
+                            rel="noopener noreferrer" is a security best practice —
+                            it prevents the new tab from accessing this page via
+                            window.opener, which could be exploited by a malicious site.
+                        -->
+                        <a href="{{ article.get('url', '#') }}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="article-link">
+                            {{ article.get("title", "No title") }}
+                        </a>
+                    </td>
+                    <td class="td-date">
+                        {{ article.get("publishedAt", "")[:10] }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endif %}

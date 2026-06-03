@@ -1,0 +1,74 @@
+<!--
+    partials/overview.html
+    Variables: ov_symbol, ov_query, ov_interval, ov_period
+-->
+<div class="plugin-panel" id="panel-overview">
+
+    <div class="plugin-header">
+        <h2>Overview</h2>
+        <p class="plugin-subtitle">Summary of all active plugins</p>
+    </div>
+
+    <!-- Settings row — inline, no separate config page needed -->
+    <form class="plugin-controls"
+          hx-post="/plugin/overview/settings"
+          hx-target="#overview-settings-feedback"
+          hx-swap="innerHTML">
+        <div class="controls-row">
+            <div class="control-group">
+                <label for="ov-symbol">Symbol</label>
+                <input type="text" id="ov-symbol" name="symbol"
+                       value="{{ ov_symbol }}" class="text-input">
+            </div>
+            <div class="control-group">
+                <label for="ov-query">News Query</label>
+                <input type="text" id="ov-query" name="news_query"
+                       value="{{ ov_query }}" class="text-input">
+            </div>
+            <div class="control-group">
+                <label for="ov-interval">Interval</label>
+                <select id="ov-interval" name="interval" class="select-input">
+                    {% for opt in ["1m","5m","15m","1h","1d"] %}
+                    <option value="{{ opt }}"
+                        {% if opt == ov_interval %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="ov-period">Period</label>
+                <select id="ov-period" name="period" class="select-input">
+                    {% for opt in ["1d","5d","1mo","3mo","6mo","1y"] %}
+                    <option value="{{ opt }}"
+                        {% if opt == ov_period %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="control-group control-group--btn">
+                <label>&nbsp;</label>
+                <button type="submit" class="btn btn--secondary">Save Settings</button>
+            </div>
+        </div>
+    </form>
+
+    <div id="overview-settings-feedback"></div>
+
+    <!-- Refresh button — triggers the data fetch -->
+    <form hx-post="/plugin/overview/fetch"
+          hx-target="#overview-results"
+          hx-swap="innerHTML"
+          hx-indicator="#overview-loading"
+          hx-include="[name='symbol'],[name='news_query'],[name='interval'],[name='period']">
+        <button type="submit" class="btn btn--primary btn--large">
+            ↻ Refresh Overview
+        </button>
+    </form>
+
+    <div id="overview-loading" class="htmx-indicator loading-inline">
+        Fetching data from all plugins…
+    </div>
+
+    <div id="overview-results" class="results-area">
+        <p class="placeholder-msg">Click Refresh Overview to load summary.</p>
+    </div>
+
+</div>

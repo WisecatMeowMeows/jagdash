@@ -1,98 +1,74 @@
 <!--
     partials/market_data.html
-    
-    This is the UI for the market_data plugin.
-    It's a "partial" — an HTML fragment, not a full page.
-    It gets loaded into #main-content by HTMX when the user clicks
-    the market_data button in the sidebar.
-    
-    Notice: no <html>, <head>, or <body> tags. This is intentional.
-    It's a fragment that slots into an existing page, not a standalone page.
-    
-    The form uses HTMX to submit without a full page reload:
-        hx-post="/plugin/market_data/fetch"   — POST to this FastAPI route
-        hx-target="#market-results"           — put the response here
-        hx-swap="innerHTML"                   — replace contents of that div
-        hx-indicator="#market-loading"        — show this element during the request
+    ui.symbol, ui.interval, ui.period come from the session via get_plugin_state().
+    On first visit they equal UI_DEFAULTS["market_data"] in main.py.
+    After a fetch they are whatever the user last submitted.
 -->
 
 <div class="plugin-panel" id="panel-market-data">
-    
+
     <div class="plugin-header">
         <h2>Market Data</h2>
         <p class="plugin-subtitle">Fetch price history via Yahoo Finance</p>
     </div>
-    
-    <!-- Controls form -->
+
     <form class="plugin-controls"
           hx-post="/plugin/market_data/fetch"
           hx-target="#market-results"
           hx-swap="innerHTML"
           hx-indicator="#market-loading">
-        
+
         <div class="controls-row">
-            
+
             <div class="control-group">
-                <label for="symbol">Symbol</label>
-                <!--
-                    name="symbol" must match the Form("symbol") parameter name
-                    in the FastAPI route handler. This is how form data maps
-                    to Python function arguments.
-                -->
-                <input type="text" 
-                       id="symbol" 
-                       name="symbol" 
-                       value="BTC-USD"
+                <label for="md-symbol">Symbol</label>
+                <input type="text"
+                       id="md-symbol"
+                       name="symbol"
+                       value="{{ ui.symbol }}"
                        placeholder="e.g. BTC-USD, AAPL, ETH-USD"
                        class="text-input">
             </div>
-            
+
             <div class="control-group">
-                <label for="interval">Interval</label>
-                <select id="interval" name="interval" class="select-input">
-                    <option value="1d" selected>1 day</option>
-                    <option value="1h">1 hour</option>
-                    <option value="30m">30 min</option>
-                    <option value="15m">15 min</option>
-                    <option value="5m">5 min</option>
-                    <option value="1wk">1 week</option>
-                    <option value="1mo">1 month</option>
+                <label for="md-interval">Interval</label>
+                <select id="md-interval" name="interval" class="select-input">
+                    {% set intervals = ["1m","2m","5m","15m","30m","1h","1d","1wk","1mo"] %}
+                    {% for opt in intervals %}
+                    <option value="{{ opt }}" {% if opt == ui.interval %}selected{% endif %}>
+                        {{ opt }}
+                    </option>
+                    {% endfor %}
                 </select>
             </div>
-            
+
             <div class="control-group">
-                <label for="period">Period</label>
-                <select id="period" name="period" class="select-input">
-                    <option value="5d">5 days</option>
-                    <option value="1mo">1 month</option>
-                    <option value="3mo">3 months</option>
-                    <option value="6mo">6 months</option>
-                    <option value="1y" selected>1 year</option>
-                    <option value="2y">2 years</option>
-                    <option value="5y">5 years</option>
-                    <option value="max">Max</option>
+                <label for="md-period">Period</label>
+                <select id="md-period" name="period" class="select-input">
+                    {% set periods = ["1d","5d","1mo","3mo","6mo","1y","2y","5y","max"] %}
+                    {% for opt in periods %}
+                    <option value="{{ opt }}" {% if opt == ui.period %}selected{% endif %}>
+                        {{ opt }}
+                    </option>
+                    {% endfor %}
                 </select>
             </div>
-            
+
             <div class="control-group control-group--btn">
                 <label>&nbsp;</label>
-                <button type="submit" class="btn btn--primary">
-                    Fetch Data
-                </button>
+                <button type="submit" class="btn btn--primary">Fetch Data</button>
             </div>
-            
-        </div><!-- end .controls-row -->
-        
+
+        </div>
+
     </form>
-    
-    <!-- Loading indicator — hidden by CSS, shown by HTMX during request -->
+
     <div id="market-loading" class="htmx-indicator loading-inline">
         Loading market data…
     </div>
-    
-    <!-- Results land here -->
+
     <div id="market-results" class="results-area">
         <p class="placeholder-msg">Results will appear here after fetching.</p>
     </div>
-    
-</div><!-- end .plugin-panel -->
+
+</div>

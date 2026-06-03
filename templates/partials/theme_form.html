@@ -1,0 +1,166 @@
+<!--
+    partials/theme_form.html
+    Reusable theme editor form. Included in config_plugin.html and
+    returned by POST /plugin/config/theme/preset to replace the form
+    when a preset is selected.
+
+    Variables: theme (dict with all theme fields)
+-->
+<form hx-post="/plugin/config/theme/save"
+      hx-target="#config-feedback"
+      hx-swap="innerHTML">
+
+    <!-- Hidden field carries the current preset name through saves -->
+    <input type="hidden" name="preset" value="{{ theme.get('preset', 'dark') }}">
+
+    <!-- ── Colors ── -->
+    <div class="config-card config-card--wide">
+        <h4 class="config-card-title">Colors</h4>
+        <div class="theme-color-grid">
+
+            {% set color_fields = [
+                ("color_bg",             "Background"),
+                ("color_surface",        "Surface"),
+                ("color_surface_raised", "Surface Raised"),
+                ("color_border",         "Border"),
+                ("color_fg",             "Text"),
+                ("color_fg_muted",       "Text Muted"),
+                ("color_accent",         "Accent"),
+                ("color_success",        "Success / Bull"),
+                ("color_error",          "Error / Bear"),
+                ("color_warning",        "Warning"),
+            ] %}
+
+            {% for field, label in color_fields %}
+            <div class="color-field">
+                <label for="tf-{{ field }}">{{ label }}</label>
+                <div class="color-input-row">
+                    <!--
+                        type="color" is a native HTML color picker.
+                        The browser renders it as a small color swatch that
+                        opens the OS color picker when clicked.
+                        value must be a 6-digit hex string: #rrggbb
+                        It syncs with the text input via the oninput handlers below.
+                    -->
+                    <input type="color"
+                           id="tf-{{ field }}"
+                           value="{{ theme.get(field, '#000000') }}"
+                           class="color-swatch"
+                           oninput="document.getElementById('txt-{{ field }}').value = this.value">
+                    <input type="text"
+                           id="txt-{{ field }}"
+                           name="{{ field }}"
+                           value="{{ theme.get(field, '#000000') }}"
+                           class="text-input color-hex-input"
+                           maxlength="7"
+                           oninput="
+                               if (/^#[0-9a-fA-F]{6}$/.test(this.value)) {
+                                   document.getElementById('tf-{{ field }}').value = this.value;
+                               }">
+                </div>
+            </div>
+            {% endfor %}
+
+        </div>
+    </div>
+
+    <!-- ── Typography & Spacing ── -->
+    <div class="config-card config-card--wide">
+        <h4 class="config-card-title">Typography & Spacing</h4>
+        <div class="controls-row">
+
+            <div class="control-group">
+                <label for="tf-font-size">
+                    Font Size: <span id="tf-font-size-display">{{ theme.get('font_size_base', 14) }}</span>px
+                </label>
+                <input type="range" name="font_size_base"
+                       min="10" max="22" step="1"
+                       value="{{ theme.get('font_size_base', 14) }}"
+                       class="weight-slider"
+                       oninput="document.getElementById('tf-font-size-display').textContent = this.value">
+            </div>
+
+            <div class="control-group">
+                <label for="tf-space-scale">
+                    Spacing:
+                    <span id="tf-space-display">
+                        {% set s = theme.get('space_scale', 1.0) | float %}
+                        {% if s <= 0.75 %}Compact
+                        {% elif s >= 1.2 %}Relaxed
+                        {% else %}Normal{% endif %}
+                    </span>
+                </label>
+                <input type="range" name="space_scale"
+                       min="0.6" max="1.4" step="0.05"
+                       value="{{ theme.get('space_scale', 1.0) }}"
+                       class="weight-slider"
+                       oninput="
+                           var v = parseFloat(this.value);
+                           var label = v <= 0.75 ? 'Compact' : v >= 1.2 ? 'Relaxed' : 'Normal';
+                           document.getElementById('tf-space-display').textContent = label;
+                       ">
+            </div>
+
+            <div class="control-group">
+                <label for="tf-sidebar-width">
+                    Sidebar Width: <span id="tf-sidebar-display">{{ theme.get('sidebar_width', 220) }}</span>px
+                </label>
+                <input type="range" name="sidebar_width"
+                       min="140" max="320" step="10"
+                       value="{{ theme.get('sidebar_width', 220) }}"
+                       class="weight-slider"
+                       oninput="document.getElementById('tf-sidebar-display').textContent = this.value">
+            </div>
+
+            <div class="control-group">
+                <label for="tf-border-radius">Corner Rounding</label>
+                <select name="border_radius" class="select-input">
+                    {% for opt in ["none", "small", "medium", "large"] %}
+                    <option value="{{ opt }}"
+                        {% if opt == theme.get('border_radius', 'medium') %}selected{% endif %}>
+                        {{ opt | title }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ── Background Image ── -->
+    <div class="config-card config-card--wide">
+        <h4 class="config-card-title">Background Image</h4>
+        <p class="section-note">
+            Enter a path relative to the repo root (e.g. <code>static/bg.jpg</code>)
+            or a full URL. Leave blank for no background image.
+        </p>
+        <div class="controls-row">
+            <div class="control-group">
+                <label for="tf-bg-image">Image Path or URL</label>
+                <input type="text" name="bg_image"
+                       value="{{ theme.get('bg_image', '') }}"
+                       placeholder="static/background.jpg"
+                       class="text-input">
+            </div>
+            <div class="control-group">
+                <label for="tf-bg-opacity">
+                    Overlay Opacity: <span id="tf-bg-opacity-display">
+                        {{ (theme.get('bg_image_opacity', 0.15) * 100) | int }}%
+                    </span>
+                    <span class="section-note">(higher = image more visible)</span>
+                </label>
+                <input type="range" name="bg_image_opacity"
+                       min="0.0" max="0.9" step="0.05"
+                       value="{{ theme.get('bg_image_opacity', 0.15) }}"
+                       class="weight-slider"
+                       oninput="document.getElementById('tf-bg-opacity-display').textContent = Math.round(this.value * 100) + '%'">
+            </div>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn--primary btn--large">Apply Theme</button>
+        <span class="section-note">Changes take effect immediately on the next page render.</span>
+    </div>
+
+</form>

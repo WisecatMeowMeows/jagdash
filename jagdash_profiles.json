@@ -2,9 +2,27 @@
     "active_profile": "default",
     "profiles": {
         "default": {
-            "dashboard_name": "NiteTrader - JagDash version",
+            "dashboard_name": "NiteTrader - Jaguar",
             "logo_path": "",
-            "theme": "default",
+            "theme": {
+                "preset": "night_trader",
+                "color_bg": "#080c14",
+                "color_surface": "#0e1420",
+                "color_surface_raised": "#161e2e",
+                "color_border": "#1e2d40",
+                "color_fg": "#c8d8e8",
+                "color_fg_muted": "#5a7a9a",
+                "color_accent": "#00d4ff",
+                "color_success": "#00ff9d",
+                "color_error": "#ff3860",
+                "color_warning": "#ffdd57",
+                "font_size_base": 13,
+                "space_scale": 0.85,
+                "sidebar_width": 200,
+                "border_radius": "small",
+                "bg_image": "",
+                "bg_image_opacity": 0.15
+            },
             "plugins": {
                 "news_feed": {
                     "enabled": true
@@ -32,7 +50,7 @@
                 }
             },
             "api_keys": {
-                "newsapi": ""
+                "newsapi": "ce889b2521a74e6c9c5e892b57653cc2"
             }
         }
     }
