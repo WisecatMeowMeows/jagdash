@@ -164,6 +164,34 @@ def get_theme(profile: dict) -> dict:
     return base
 
 
+def normalize_asset_path(path: str) -> str:
+    """
+    Convert any user-supplied asset path to an absolute URL path.
+
+    The browser resolves url() in CSS and src= in HTML relative to the
+    current page URL — not the server root. This breaks relative paths
+    when the page URL is /plugin/something rather than /.
+
+    Examples:
+        "images/bg.jpg"          -> "/images/bg.jpg"
+        "static/logo.png"        -> "/static/logo.png"
+        "bg.jpg"                 -> "/images/bg.jpg"  (bare filename: assume images/)
+        "/images/bg.jpg"         -> "/images/bg.jpg"  (already absolute: unchanged)
+        "http://example.com/x"   -> "http://example.com/x"  (full URL: unchanged)
+    """
+    path = path.strip()
+    if not path:
+        return ""
+    # Already absolute — pass through unchanged
+    if path.startswith(("http://", "https://", "/")):
+        return path
+    # Has a directory component — just prepend /
+    if "/" in path:
+        return "/" + path
+    # Bare filename with no directory — assume images/
+    return "/images/" + path
+
+
 def generate_css(theme: dict) -> str:
     """Generate a CSS :root override block from a theme dict."""
     t     = theme
@@ -211,11 +239,18 @@ def generate_css(theme: dict) -> str:
 
     bg_image = t.get("bg_image", "").strip()
     if bg_image:
-        opacity = float(t.get("bg_image_opacity", 0.15))
+        opacity  = float(t.get("bg_image_opacity", 0.15))
         bg_color = t.get("color_bg", "#0d1117")
+
+        # Normalize to an absolute URL so CSS url() works from any page.
+        # Browser resolves CSS url() relative to the current page URL, not
+        # the server root. A relative path breaks on /plugin/* pages.
+        # Rule: anything not already absolute gets a leading / prepended.
+        bg_url = normalize_asset_path(bg_image)
+
         lines.append(f"""
 body {{
-    background-image: url('{bg_image}');
+    background-image: url('{bg_url}');
     background-size: cover;
     background-position: center;
     background-attachment: fixed;

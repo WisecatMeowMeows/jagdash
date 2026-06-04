@@ -89,14 +89,20 @@
         <!-- Preset selector — loads preset values into the form below -->
         <div class="config-card config-card--wide">
             <h4 class="config-card-title">Preset Themes</h4>
-            <div class="preset-row">
+            <div class="preset-row" id="preset-btn-row">
                 {% for pname in preset_names %}
                 <button type="button"
                         class="preset-btn {% if pname == theme.get('preset','dark') %}preset-btn--active{% endif %}"
                         hx-post="/plugin/config/theme/preset"
                         hx-vals='{"preset_name": "{{ pname }}"}'
                         hx-target="#theme-form-area"
-                        hx-swap="innerHTML">
+                        hx-swap="innerHTML"
+                        onclick="
+                            document.querySelectorAll('#preset-btn-row .preset-btn').forEach(function(b) {
+                                b.classList.remove('preset-btn--active');
+                            });
+                            this.classList.add('preset-btn--active');
+                        ">
                     {{ pname | replace("_", " ") | title }}
                 </button>
                 {% endfor %}

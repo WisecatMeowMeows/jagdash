@@ -1,95 +1,80 @@
-# example_plugin.py
-# JagDash Example Plugin: System Clock
+# example_plugin.py — JagDash Example Plugin: System Clock
 #
-# This is the simplest possible working plugin.
-# It has no requires — it depends on nothing else.
-# It provides one capability: "system.time"
+# The simplest possible working plugin. No requires, one capability.
+# Use this as a structural reference.
 #
-# Use this as a reference for structure and patterns.
-# It is safe to load and run without any other plugins present.
+# To make this appear in JagDash:
+#   1. Copy to plugins/system_clock/plugin.py
+#   2. Create templates/partials/system_clock.html
+#   3. Add a POST route in main.py for the button action
 
-import streamlit as st
 from datetime import datetime, timezone
 
 
 PLUGIN_NAME = "System Clock"
 
 
-# ---------------------------
-# Required: manifest()
-# ---------------------------
-
 def manifest():
     return {
-        "name": "system_clock",
-        "version": "1.0",
-        "provides": [
-            "system.time"
-        ],
-        "requires": []          # self-contained — calls nothing else
+        "name":     "system_clock",
+        "version":  "1.0",
+        "provides": ["system.time"],
+        "requires": []
     }
 
 
-# ---------------------------
-# Required: handle_request()
-# ---------------------------
-
 def handle_request(request, context):
     capability = request.get("capability")
-    payload = request.get("payload", {})
+    payload    = request.get("payload", {})
 
     if capability == "system.time":
         return _handle_system_time(payload, context)
 
-    return {
-        "status": "error",
-        "message": f"Unsupported capability: {capability}"
-    }
+    return {"status": "error", "message": f"Unsupported capability: {capability}"}
 
 
 def _handle_system_time(payload, context):
-    # Read optional input — default to UTC if not specified
     tz_name = payload.get("timezone", "UTC")
-
     try:
-        now = datetime.now(timezone.utc)
+        now       = datetime.now(timezone.utc)
         timestamp = now.isoformat()
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Failed to get system time: {e}"
-        }
+        return {"status": "error", "message": f"Failed to get time: {e}"}
 
-    # Publish event so any listener can react to a time check
-    context.publish(
-        "system.time.checked",
-        {"timestamp": timestamp}
-    )
+    context.publish("system.time.checked", {"timestamp": timestamp})
 
     return {
         "status": "success",
-        "data": {
-            "timestamp": timestamp,
-            "timezone": tz_name
-        }
+        "data": {"timestamp": timestamp, "timezone": tz_name}
     }
 
 
-# ---------------------------
-# Optional: render_ui()
-# ---------------------------
+def get_ui_context(context):
+    """Data for templates/partials/system_clock.html"""
+    return {}   # This plugin needs no initial data — form is static
 
-def render_ui(context):
-    st.title(PLUGIN_NAME)
 
-    if st.button("Get Current Time"):
-        response = context.request(
-            "system.time",
-            {"timezone": "UTC"}
-        )
-
-        if response["status"] == "success":
-            data = response["data"]
-            st.success(data["timestamp"])
-        else:
-            st.error(response["message"])
+# ---------------------------------------------------------------------------
+# The HTML template would be templates/partials/system_clock.html:
+#
+#   <div class="plugin-panel">
+#       <div class="plugin-header"><h2>System Clock</h2></div>
+#       <form hx-post="/plugin/system_clock/time"
+#             hx-target="#clock-result" hx-swap="innerHTML">
+#           <button type="submit" class="btn btn--primary">Get Time</button>
+#       </form>
+#       <div id="clock-result" class="results-area"></div>
+#   </div>
+#
+# And in main.py:
+#
+#   @app.post("/plugin/system_clock/time", response_class=HTMLResponse)
+#   async def system_clock_time(request: Request):
+#       host   = get_host(request)
+#       ctx    = PluginContext(host)
+#       result = ctx.request("system.time", {})
+#       if result["status"] == "success":
+#           ts = result["data"]["timestamp"]
+#           return HTMLResponse(f'<div class="success-msg">{ts}</div>')
+#       return HTMLResponse(f'<div class="error-msg">{result["message"]}</div>')
+# ---------------------------------------------------------------------------

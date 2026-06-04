@@ -1,175 +1,76 @@
-import streamlit as st
-import pandas as pd
-
+# plugins/news_signal/plugin.py — Streamlit removed
+# render_ui() deleted. Business logic and scoring unchanged.
 
 BULLISH_WORDS = [
-    "surge",
-    "rally",
-    "growth",
-    "approval",
-    "breakout",
-    "profit",
-    "record",
-    "bullish",
-    "partnership",
-    "beat"
+    "surge", "rally", "growth", "approval", "breakout",
+    "profit", "record", "bullish", "partnership", "beat"
 ]
 
 BEARISH_WORDS = [
-    "crash",
-    "fraud",
-    "lawsuit",
-    "war",
-    "recession",
-    "decline",
-    "miss",
-    "bankrupt",
-    "sanctions",
-    "hack"
+    "crash", "fraud", "lawsuit", "war", "recession",
+    "decline", "miss", "bankrupt", "sanctions", "hack"
 ]
 
 
 def manifest():
     return {
-        "name": "news_signal",
-        "version": "1.0",
-        "provides": [
-            "news.signal"
-        ],
-        "requires": [
-            "news.search"
-        ]
+        "name":     "news_signal",
+        "version":  "1.1",
+        "provides": ["news.signal"],
+        "requires": ["news.search"]
     }
 
 
 def score_headline(title):
-    title_lower = title.lower()
-
-    bullish_score = 0
-    bearish_score = 0
-
-    for word in BULLISH_WORDS:
-        if word in title_lower:
-            bullish_score += 1
-
-    for word in BEARISH_WORDS:
-        if word in title_lower:
-            bearish_score += 1
-
+    title_lower   = title.lower()
+    bullish_score = sum(1 for w in BULLISH_WORDS if w in title_lower)
+    bearish_score = sum(1 for w in BEARISH_WORDS if w in title_lower)
     return bullish_score, bearish_score
 
 
 def handle_request(request, context):
-    query = request["payload"].get(
-        "query",
-        "Bitcoin"
-    )
+    query = request["payload"].get("query", "Bitcoin")
 
-    news_result = context.request(
-        "news.search",
-        {
-            "query": query
-        }
-    )
+    try:
+        news_result = context.request("news.search", {"query": query})
+    except Exception as e:
+        return {"status": "error", "message": f"news.search failed: {e}"}
 
-    articles = news_result["data"]
+    if news_result["status"] != "success":
+        return news_result
 
+    articles      = news_result["data"]
     bullish_total = 0
     bearish_total = 0
-
-    scored_articles = []
+    scored        = []
 
     for article in articles:
-        title = article["title"]
-
+        title = article.get("title", "")
         bull, bear = score_headline(title)
-
         bullish_total += bull
         bearish_total += bear
-
-        scored_articles.append({
-            "title": title,
-            "source": article["source"]["name"],
+        scored.append({
+            "title":         title,
+            "source":        article.get("source", {}).get("name", "Unknown"),
             "bullish_score": bull,
-            "bearish_score": bear
+            "bearish_score": bear,
         })
 
     if bullish_total > bearish_total:
         signal = "BULLISH"
-
     elif bearish_total > bullish_total:
         signal = "BEARISH"
-
     else:
         signal = "NEUTRAL"
 
-    context.publish(
-        "news.signal_generated",
-        {
-            "query": query,
-            "signal": signal
-        }
-    )
+    context.publish("news.signal_generated", {"query": query, "signal": signal})
 
     return {
         "status": "success",
         "data": {
-            "signal": signal,
+            "signal":        signal,
             "bullish_total": bullish_total,
             "bearish_total": bearish_total,
-            "articles": scored_articles
+            "articles":      scored,
         }
     }
-
-
-def render_ui(context):
-    st.subheader("News Signal Engine")
-
-    query = st.text_input(
-        "Asset / Topic",
-        value="Bitcoin"
-    )
-
-    if st.button("Generate News Signal"):
-        try:
-            result = context.request(
-                "news.signal",
-                {
-                    "query": query
-                }
-            )
-
-            data = result["data"]
-
-            st.metric(
-                "Overall Signal",
-                data["signal"]
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.metric(
-                    "Bullish Score",
-                    data["bullish_total"]
-                )
-
-            with col2:
-                st.metric(
-                    "Bearish Score",
-                    data["bearish_total"]
-                )
-
-            df = pd.DataFrame(
-                data["articles"]
-            )
-
-            st.dataframe(
-                df,
-                use_container_width=True
-            )
-
-        except Exception as e:
-            st.error(
-                f"Signal generation failed: {e}"
-            )

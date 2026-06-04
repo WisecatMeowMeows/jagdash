@@ -1921,3 +1921,19 @@ code {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* ============================================================
+   SIDEBAR LOGO
+   ============================================================ */
+
+.sidebar-logo {
+    display: block;
+    max-width: 100%;
+    max-height: 60px;          /* cap height so it doesn't overwhelm the sidebar */
+    width: auto;
+    height: auto;
+    object-fit: contain;       /* preserve aspect ratio */
+    margin-bottom: var(--space-sm);
+    border-radius: var(--border-radius-sm);
+}

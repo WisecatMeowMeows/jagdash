@@ -1,150 +1,107 @@
-# plugin_template.py
-# JagDash Plugin Template
+# plugin_template.py — JagDash Plugin Template
 #
-# Instructions:
-# 1. Copy this file to plugins/your_plugin_name.py
-# 2. Replace all placeholder values (marked with TODO)
-# 3. Remove comments you no longer need
-# 4. Add your dependencies to requirements.txt
+# Copy this file to plugins/your_plugin_name/plugin.py
+# Replace all TODO markers.
+# Add your template to templates/partials/your_plugin_name.html
+# Add your routes to main.py
 
-import streamlit as st
-
-# TODO: import any additional libraries your plugin needs
-# Example: import pandas as pd
+# TODO: import libraries your plugin needs for its logic
+# DO NOT import streamlit — the UI layer is handled by FastAPI + Jinja2
 
 
-# ---------------------------
-# Plugin Identity
-# ---------------------------
+# ---------------------------------------------------------------------------
+# Plugin identity
+# ---------------------------------------------------------------------------
 
-PLUGIN_NAME = "My Plugin"  # TODO: human-readable name for UI display
+PLUGIN_NAME = "My Plugin"   # TODO: human-readable name
 
 
-# ---------------------------
+# ---------------------------------------------------------------------------
 # Required: manifest()
-# ---------------------------
+# ---------------------------------------------------------------------------
 
 def manifest():
     return {
-        "name": "my_plugin",            # TODO: unique snake_case identifier
-        "version": "1.0",
-        "provides": [
-            "my.capability"             # TODO: capability strings this plugin handles
-        ],
+        "name":     "my_plugin",        # TODO: unique snake_case identifier
+        "version":  "1.0",
+        "provides": ["my.capability"],  # TODO: capability strings this plugin handles
         "requires": [
-            # "other.capability"        # TODO: list capabilities you will call via context.request()
-            #                           # Delete this section if your plugin is self-contained
+            # "other.capability"        # TODO: capabilities you call via context.request()
+            # Delete this section if self-contained
         ]
     }
 
 
-# ---------------------------
+# ---------------------------------------------------------------------------
 # Required: handle_request()
-# ---------------------------
+# ---------------------------------------------------------------------------
 
 def handle_request(request, context):
     """
-    Called by PluginHost when another plugin or the UI requests
-    a capability this plugin provides.
-
-    Always return either:
-        {"status": "success", "data": <your output>}
-        {"status": "error",   "message": "<description>"}
+    Called by PluginHost when a capability this plugin provides is requested.
+    Always returns {"status": "success", "data": ...}
+                or {"status": "error",   "message": ...}
+    Never raises an unhandled exception.
     """
-
     capability = request.get("capability")
-    payload = request.get("payload", {})
+    payload    = request.get("payload", {})
 
-    # --- Dispatch on capability ---
-    if capability == "my.capability":           # TODO: match your capability string
+    if capability == "my.capability":       # TODO: match your capability string
         return _handle_my_capability(payload, context)
 
-    # If we get here, PluginHost sent us something we don't handle
-    return {
-        "status": "error",
-        "message": f"Unsupported capability: {capability}"
-    }
+    return {"status": "error", "message": f"Unsupported capability: {capability}"}
 
 
 def _handle_my_capability(payload, context):
-    """
-    Core logic for my.capability.
-    Separate function keeps handle_request() clean.
-    """
+    # Read inputs — always use .get() with a default
+    my_input = payload.get("my_input", "default")   # TODO: your parameters
 
-    # --- Read inputs from payload ---
-    # Always use .get() with a default — never assume a key exists
-    symbol = payload.get("symbol", "BTC-USD")   # TODO: replace with your parameters
-
-    # --- Call other plugins if needed ---
-    # Only do this if "other.capability" is in your manifest requires list
-    #
+    # Call another plugin if needed (only if listed in manifest requires)
     # try:
-    #     response = context.request(
-    #         "other.capability",
-    #         {"key": "value"}
-    #     )
+    #     response = context.request("other.capability", {"key": "value"})
     # except Exception as e:
-    #     return {
-    #         "status": "error",
-    #         "message": f"Request to other.capability failed: {e}"
-    #     }
-    #
+    #     return {"status": "error", "message": f"other.capability failed: {e}"}
     # if response["status"] != "success":
     #     return response
-    #
     # data = response["data"]
 
-    # --- Your logic here ---
-    # TODO: replace with real implementation
-    result = f"Processed: {symbol}"
+    # Your logic here
+    try:
+        result = my_input.upper()   # TODO: replace with real logic
+    except Exception as e:
+        return {"status": "error", "message": f"Processing failed: {e}"}
 
-    # --- Publish an event (optional) ---
-    # Notify any listeners that something happened
-    # context.publish(
-    #     "my.event.name",
-    #     {"key": "value"}
-    # )
+    # Publish an event (optional)
+    # context.publish("my.event", {"result": result})
 
-    # --- Return success ---
     return {
         "status": "success",
-        "data": {
-            "symbol": symbol,
-            "result": result    # TODO: replace with your output structure
-        }
+        "data": {"result": result}   # TODO: your output structure
     }
 
 
-# ---------------------------
-# Optional: render_ui()
-# ---------------------------
+# ---------------------------------------------------------------------------
+# Optional: get_ui_context()
+# Called by the generic /plugin/{name} route in main.py to pass
+# data into the Jinja2 template at templates/partials/my_plugin.html
+# ---------------------------------------------------------------------------
 
-def render_ui(context):
+def get_ui_context(context):
     """
-    Streamlit UI for this plugin.
-    Remove this function entirely if your plugin has no UI.
+    Return a dict of variables for the plugin's Jinja2 template.
+    Keep this lightweight — it runs every time the user navigates to this plugin.
     """
+    return {
+        "some_default": "value",    # TODO: whatever your template needs
+    }
 
-    st.title(PLUGIN_NAME)
 
-    # --- Inputs ---
-    symbol = st.text_input("Symbol", value="BTC-USD")  # TODO: your inputs
-
-    # --- Trigger ---
-    if st.button("Run"):
-        response = context.request(
-            "my.capability",            # TODO: match your capability string
-            {
-                "symbol": symbol        # TODO: match your payload keys
-            }
-        )
-
-        # --- Display results ---
-        if response["status"] == "success":
-            data = response["data"]
-            st.success(f"Result: {data['result']}")  # TODO: display your output
-            st.json(data)                            # useful during development, remove later
-
-        else:
-            st.error(response["message"])
+# ---------------------------------------------------------------------------
+# NOTE: No render_ui() function.
+# In JagDash FastAPI, the UI is defined in:
+#   templates/partials/my_plugin.html      (the form / controls)
+#   templates/partials/my_plugin_results.html  (the results fragment)
+#
+# Routes in main.py handle form submissions and call handle_request().
+# See existing plugins for examples.
+# ---------------------------------------------------------------------------

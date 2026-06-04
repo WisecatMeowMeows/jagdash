@@ -20,7 +20,7 @@ from host import PluginHost
 from plugin_loader import load_plugins
 from plugin_context import PluginContext
 from theme_engine import (
-    get_style_block, get_theme, get_preset,
+    get_theme, generate_css, get_preset,
     preset_names as get_preset_names, PRESETS
 )
 
@@ -73,6 +73,13 @@ app.add_middleware(
     max_age=86400 * 7,
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Mount images/ directory so /images/filename.jpg is served directly.
+# StaticFiles will raise an error at startup if the directory doesn't exist,
+# so we create it if missing rather than crashing.
+import pathlib
+pathlib.Path("images").mkdir(exist_ok=True)
+app.mount("/images", StaticFiles(directory="images"), name="images")
 templates = Jinja2Templates(directory="templates")
 
 
@@ -96,16 +103,20 @@ def save_plugin_state(request: Request, plugin_name: str, values: dict) -> None:
 
 def base_context(request: Request) -> dict:
     """
-    Build the context dict needed by base.html.
-    Called by every route that returns a full page (just the index route).
-    The theme_css variable is the injected <style> block.
+    Build the context dict needed by base.html on full page loads.
+    theme_css_content is the raw CSS inside <style id="jagdash-theme">.
+    logo_path is normalized to an absolute URL so src= works from any page.
     """
     host    = get_host(request)
     profile = host.get_active_profile()
+    theme   = get_theme(profile)
+    from theme_engine import generate_css, normalize_asset_path
+    raw_logo = profile.get("logo_path", "").strip()
     return {
-        "dashboard_name": profile.get("dashboard_name", "JagDash"),
-        "plugins":        host.list_plugins(),
-        "theme_css":      get_style_block(profile),
+        "dashboard_name":    profile.get("dashboard_name", "JagDash"),
+        "plugins":           host.list_plugins(),
+        "theme_css_content": generate_css(theme),
+        "logo_path":         normalize_asset_path(raw_logo) if raw_logo else "",
     }
 
 
@@ -169,17 +180,25 @@ async def load_plugin(request: Request, plugin_name: str):
 
 def theme_saved_response(message: str, profile: dict) -> HTMLResponse:
     """
-    Return a success message that also triggers a full page reload.
-    Unlike the earlier HX-Refresh approach on config saves, theme changes
-    genuinely need a full reload because they affect the layout dimensions
-    (sidebar width, spacing scale) which the browser has already rendered.
-    A partial swap would leave the old layout in place until reload.
+    Update the theme in-place using HTMX out-of-band swap.
+
+    Returns two things in one response:
+      1. A feedback message for #config-feedback (the normal hx-target)
+      2. A new <style> block with hx-swap-oob="true" and id="jagdash-theme"
+         HTMX finds the existing <style id="jagdash-theme"> in the page and
+         replaces it with the new CSS — no page reload, no navigation.
+
+    Note: sidebar-width and spacing changes take effect immediately because
+    CSS custom properties update live when the <style> block changes.
+    The browser re-renders affected elements automatically.
     """
-    response = HTMLResponse(
-        f'<div class="success-msg">{message} Applying…</div>'
-    )
-    response.headers["HX-Refresh"] = "true"
-    return response
+    from theme_engine import get_theme, generate_css
+    theme   = get_theme(profile)
+    new_css = generate_css(theme)
+    # The OOB element must have the same id as the element in the page
+    oob_style = f'<style id="jagdash-theme" hx-swap-oob="true">{new_css}</style>'
+    feedback  = f'<div class="success-msg">{message}</div>'
+    return HTMLResponse(feedback + oob_style)
 
 
 # ---------------------------------------------------------------------------
@@ -227,19 +246,24 @@ async def config_profile_load(request: Request, profile_name: str = Form(...)):
     host = get_host(request)
     try:
         host.set_active_profile(profile_name)
-        profile   = host.get_active_profile()
-        new_name  = profile.get("dashboard_name", "JagDash")
+        profile  = host.get_active_profile()
+        new_name = profile.get("dashboard_name", "JagDash")
+        from theme_engine import generate_css, normalize_asset_path
+        new_css  = generate_css(get_theme(profile))
+        raw_logo = profile.get("logo_path", "").strip()
+        logo_url = normalize_asset_path(raw_logo) if raw_logo else ""
         oob_title = (f'<h1 class="dashboard-title" id="dashboard-title"'
                      f' hx-swap-oob="true">{new_name}</h1>')
-        response  = HTMLResponse(
-            f'<div class="success-msg">Profile \'{profile_name}\' loaded.</div>' + oob_title
-        )
-        # Reload so theme also updates
-        response.headers["HX-Refresh"] = "true"
-        return response
+        oob_style = f'<style id="jagdash-theme" hx-swap-oob="true">{new_css}</style>'
+        if logo_url:
+            oob_logo = (f'<img src="{logo_url}" alt="Logo"'
+                        f' class="sidebar-logo" id="sidebar-logo" hx-swap-oob="true">')
+        else:
+            oob_logo = '<span id="sidebar-logo" hx-swap-oob="true"></span>'
+        feedback = f'<div class="success-msg">Profile \'{profile_name}\' loaded.</div>'
+        return HTMLResponse(feedback + oob_title + oob_style + oob_logo)
     except Exception as e:
         return error_fragment(f"Failed to load profile: {e}")
-
 
 @app.post("/plugin/config/profile/create", response_class=HTMLResponse)
 async def config_profile_create(request: Request, profile_name: str = Form(...)):

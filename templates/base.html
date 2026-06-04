@@ -29,6 +29,11 @@
     
     <!-- Our CSS file. /static/ is served by FastAPI's StaticFiles mount. -->
     <link rel="stylesheet" href="/static/jagdash.css">
+    <!--
+        Theme override block — id="jagdash-theme" allows HTMX out-of-band swap
+        to update only this element when theme is saved, no page reload needed.
+    -->
+    <style id="jagdash-theme">{{ theme_css_content | safe }}</style>
     
     <!--
         HTMX — loaded from a CDN (Content Delivery Network) for now.
@@ -66,6 +71,9 @@
              ============================================================ -->
         <aside class="sidebar">
             <div class="sidebar-header">
+                {% if logo_path %}
+                <img src="{{ logo_path }}" alt="Logo" class="sidebar-logo" id="sidebar-logo">
+                {% endif %}
                 <h1 class="dashboard-title" id="dashboard-title">{{ dashboard_name }}</h1>
             </div>
             

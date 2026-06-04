@@ -3,7 +3,7 @@
     "profiles": {
         "default": {
             "dashboard_name": "NiteTrader - Jaguar",
-            "logo_path": "",
+            "logo_path": "/images/crescent_moon_stars.jpg",
             "theme": {
                 "preset": "night_trader",
                 "color_bg": "#080c14",
@@ -20,8 +20,8 @@
                 "space_scale": 0.85,
                 "sidebar_width": 200,
                 "border_radius": "small",
-                "bg_image": "",
-                "bg_image_opacity": 0.15
+                "bg_image": "/images/OIP-3144170377.jpg",
+                "bg_image_opacity": 0.1
             },
             "plugins": {
                 "news_feed": {
