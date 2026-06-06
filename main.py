@@ -37,6 +37,9 @@ UI_DEFAULTS = {
     "news_signal":   {"query": "Bitcoin"},
     "overview":      {"symbol": "BTC-USD", "news_query": "Bitcoin",
                       "interval": "5m", "period": "1mo"},
+    "c0rdin8": {
+        "feed_url": "http://127.0.0.1:5000/feed/wsb.json"
+    }
 }
 
 
@@ -169,7 +172,28 @@ async def load_plugin(request: Request, plugin_name: str):
             content=f'<div class="plugin-no-ui"><p>Plugin <strong>{plugin_name}</strong> has no UI panel.</p></div>'
         )
 
+@app.post("/plugin/c0rdin8/fetch_all")
+async def c0rdin8_fetch_all(request: Request):
 
+    host = get_host(request)
+    context = PluginContext(host)
+
+    result = context.request("feed.fetch_all", {})
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/c0rdin8_results.html",
+        context={
+            "signals": result["data"],
+            "feed": {
+                "feed_name": "All Feeds",
+                "publisher": "",
+                "signal_count": len(result["data"])
+            },
+            "error": None
+        }
+    )
+    
 # ---------------------------------------------------------------------------
 # OOB STYLE REFRESH HELPER
 # After saving theme, we return the feedback message plus an OOB swap
@@ -236,6 +260,61 @@ async def market_data_fetch(
         }
     )
 
+@app.post("/plugin/c0rdin8/fetch", response_class=HTMLResponse)
+async def c0rdin8_fetch(
+    request: Request,
+    feed_url: str = Form(...)
+):
+
+    save_plugin_state(
+        request,
+        "c0rdin8",
+        {"feed_url": feed_url}
+    )
+
+    host = get_host(request)
+    context = PluginContext(host)
+
+    try:
+
+        result = context.request(
+            "feed.fetch",
+            {
+                "feed_url": feed_url
+            }
+        )
+
+    except Exception as e:
+
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/c0rdin8_results.html",
+            context={
+                "signals": [],
+                "error": str(e)
+            }
+        )
+
+    if result["status"] != "success":
+
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/c0rdin8_results.html",
+            context={
+                "signals": [],
+                "error": result["message"]
+            }
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/c0rdin8_results.html",
+        context={
+            "signals": result["data"],
+            "feed": result["feed"],
+            "error": None
+        }
+    )
 
 # ---------------------------------------------------------------------------
 # CONFIG PLUGIN

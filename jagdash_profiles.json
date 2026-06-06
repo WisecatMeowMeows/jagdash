@@ -3,7 +3,7 @@
     "profiles": {
         "default": {
             "dashboard_name": "NiteTrader - Jaguar",
-            "logo_path": "/images/crescent_moon_stars.jpg",
+            "logo_path": "crescent_moon_stars.jpg",
             "theme": {
                 "preset": "night_trader",
                 "color_bg": "#080c14",
