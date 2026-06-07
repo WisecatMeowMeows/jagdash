@@ -26,21 +26,9 @@ from theme_engine import (
 
 load_dotenv()
 
-UI_DEFAULTS = {
-    "market_data": {
-        "symbol": "BTC-USD", "interval": "5m", "period": "1mo",
-    },
-    "strategy_engine": {
-        "symbol": "BTC-USD", "interval": "5m", "period": "1mo",
-    },
-    "news_scanner":  {"watchlist_item": "Bitcoin", "custom_query": ""},
-    "news_signal":   {"query": "Bitcoin"},
-    "overview":      {"symbol": "BTC-USD", "news_query": "Bitcoin",
-                      "interval": "5m", "period": "1mo"},
-    "c0rdin8": {
-        "feed_url": "http://127.0.0.1:5000/feed/wsb.json"
-    }
-}
+# UI_DEFAULTS has been removed.
+# Each plugin now declares its own defaults in manifest()["ui_defaults"].
+# get_plugin_state() reads from there automatically.
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +47,20 @@ async def lifespan(app: FastAPI):
         for m in missing:
             print(f"  {m['plugin']} requires '{m['missing']}' — not loaded")
     app.state.host = host
+
+    # Call register_routes() on any plugin that defines it.
+    # This lets plugins own their own POST routes rather than requiring
+    # main.py to know about every plugin's form fields.
+    # Plugins that haven't migrated yet (no register_routes) are unaffected.
+    for plugin_name, plugin_data in host.plugins.items():
+        plugin_module = plugin_data["module"]
+        if hasattr(plugin_module, "register_routes"):
+            try:
+                plugin_module.register_routes(app, templates, get_host)
+                print(f"  routes registered: {plugin_name}")
+            except Exception as e:
+                print(f"  WARNING: {plugin_name}.register_routes() failed: {e}")
+
     print(f"JagDash started. Loaded plugins: {host.list_plugins()}")
     yield
     print("JagDash shutting down.")
@@ -95,8 +97,23 @@ def get_host(request: Request) -> PluginHost:
 
 
 def get_plugin_state(request: Request, plugin_name: str) -> dict:
-    defaults = UI_DEFAULTS.get(plugin_name, {})
-    saved    = request.session.get(f"ui_{plugin_name}", {})
+    """
+    Return the UI state for a plugin, merging in order:
+      1. Plugin's own manifest ui_defaults  (lowest priority)
+      2. Session-saved values from last submit  (highest priority)
+
+    Plugins declare their defaults in manifest():
+        "ui_defaults": {"symbol": "BTC-USD", "interval": "5m"}
+
+    This means main.py never needs to know a plugin's field names or defaults.
+    """
+    host = request.app.state.host
+    try:
+        manifest = host.plugins[plugin_name]["manifest"]
+        defaults = manifest.get("ui_defaults", {})
+    except (KeyError, AttributeError):
+        defaults = {}
+    saved = request.session.get(f"ui_{plugin_name}", {})
     return {**defaults, **saved}
 
 
@@ -226,39 +243,9 @@ def theme_saved_response(message: str, profile: dict) -> HTMLResponse:
 
 
 # ---------------------------------------------------------------------------
-# MARKET DATA
+# MARKET DATA — routes moved to plugins/market_data/plugin.py
+# register_routes() is called automatically at startup.
 # ---------------------------------------------------------------------------
-
-@app.post("/plugin/market_data/fetch", response_class=HTMLResponse)
-async def market_data_fetch(
-    request: Request,
-    symbol:   str = Form("BTC-USD"),
-    period:   str = Form("1mo"),
-    interval: str = Form("5m"),
-):
-    save_plugin_state(request, "market_data",
-                      {"symbol": symbol, "period": period, "interval": interval})
-    host    = get_host(request)
-    context = PluginContext(host)
-    try:
-        result = context.request("market.price", {
-            "symbol": symbol, "period": period,
-            "interval": interval, "include_ohlcv": True
-        })
-    except Exception as e:
-        return HTMLResponse(content=f'<div class="error-msg">Request failed: {e}</div>')
-    if result["status"] != "success":
-        return HTMLResponse(content=f'<div class="error-msg">{result["message"]}</div>')
-    records = result["data"]
-    return templates.TemplateResponse(
-        request=request, name="partials/market_data_results.html",
-        context={
-            "symbol": symbol, "records": records,
-            "meta": result.get("meta", {}),
-            "latest_close": records[-1]["close"] if records else None,
-            "candle_count": len(records),
-        }
-    )
 
 @app.post("/plugin/c0rdin8/fetch", response_class=HTMLResponse)
 async def c0rdin8_fetch(

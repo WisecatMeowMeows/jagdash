@@ -9,11 +9,14 @@ python-dotenv       # reads .env file
 python-multipart    # required for Form() parsing in FastAPI
 itsdangerous        # required by Starlette SessionMiddleware
 
+# --- Authentication ---
+bcrypt              # password hashing for login
+
 # --- Data & finance ---
 pandas
 numpy
 yfinance
 pyyaml
 
-# --- News ---
+# --- News & HTTP ---
 requests            # used by news_scanner

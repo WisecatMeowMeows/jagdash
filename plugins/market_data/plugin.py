@@ -53,7 +53,12 @@ def manifest():
             "market.price",
             "market.settings",
         ],
-        "requires": []
+        "requires": [],
+        "ui_defaults": {          
+            "symbol":   "BTC-USD",
+            "interval": "5m",
+            "period":   "1mo",
+        }
     }
 
 
@@ -264,3 +269,78 @@ def handle_request(request, context):
                    f"Provides: market.price, market.settings",
     }
 
+def register_routes(app, templates, get_host):
+    """
+    Register this plugin's HTTP routes directly onto the FastAPI app.
+
+    Called once at JagDash startup by main.py's lifespan function.
+    This means main.py never needs to know about market_data's form fields,
+    capability names, or template names.
+
+    The function signature (app, templates, get_host) is the standard
+    JagDash plugin route registration contract. Every plugin that registers
+    routes must accept these three arguments:
+        app         — the FastAPI application instance
+        templates   — the Jinja2Templates instance for rendering HTML
+        get_host    — function(request) -> PluginHost, for accessing plugins
+
+    Why import inside the function?
+    FastAPI, Form, HTMLResponse, etc. are only needed when routes are being
+    registered — not when the plugin is doing its data work in handle_request().
+    Keeping these imports local means the plugin's core logic has no web
+    framework dependency, which makes it easier to test in isolation.
+    """
+    from fastapi import Form, Request
+    from fastapi.responses import HTMLResponse
+    from plugin_context import PluginContext
+
+    # Import save_plugin_state from main — but we can't import main directly
+    # (circular import). Instead, duplicate the minimal state-saving logic.
+    # This is the one unavoidable trade-off of the register_routes pattern.
+    def _save_state(request, values: dict) -> None:
+        request.session["ui_market_data"] = values
+
+    @app.post("/plugin/market_data/fetch", response_class=HTMLResponse)
+    async def market_data_fetch(
+        request:  Request,
+        symbol:   str = Form("BTC-USD"),
+        period:   str = Form("1mo"),
+        interval: str = Form("5m"),
+    ):
+        # Save submitted values to session so the form restores them on reload
+        _save_state(request, {
+            "symbol": symbol, "period": period, "interval": interval
+        })
+
+        host    = get_host(request)
+        context = PluginContext(host)
+
+        try:
+            result = context.request("market.price", {
+                "symbol":        symbol,
+                "period":        period,
+                "interval":      interval,
+                "include_ohlcv": True,
+            })
+        except Exception as e:
+            return HTMLResponse(
+                content=f'<div class="error-msg">Request failed: {e}</div>'
+            )
+
+        if result["status"] != "success":
+            return HTMLResponse(
+                content=f'<div class="error-msg">{result["message"]}</div>'
+            )
+
+        records = result["data"]
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/market_data_results.html",
+            context={
+                "symbol":      symbol,
+                "records":     records,
+                "meta":        result.get("meta", {}),
+                "latest_close": records[-1]["close"] if records else None,
+                "candle_count": len(records),
+            }
+        )
