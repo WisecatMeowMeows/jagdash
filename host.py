@@ -202,6 +202,8 @@ class PluginHost:
         )
 
     def get_api_key(self, service_name):
+        return self.config_manager.get_api_key(service_name)
+        """
         profile = self.get_active_profile()
         return profile.get(
             "api_keys",
@@ -210,7 +212,7 @@ class PluginHost:
             service_name,
             ""
         )
-
+        """
 
     def update_api_key(
         self,

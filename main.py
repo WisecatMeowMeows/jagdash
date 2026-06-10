@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 from typing import List, Optional
+from pathlib import Path
 from starlette.middleware.sessions import SessionMiddleware
 
 from host import PluginHost
@@ -24,7 +25,9 @@ from theme_engine import (
     preset_names as get_preset_names, PRESETS
 )
 
-load_dotenv()
+# Use explicit path so .env is found regardless of which directory
+# uvicorn is launched from. __file__ is always main.py's location.
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 # UI_DEFAULTS has been removed.
 # Each plugin now declares its own defaults in manifest()["ui_defaults"].
@@ -47,6 +50,16 @@ async def lifespan(app: FastAPI):
         for m in missing:
             print(f"  {m['plugin']} requires '{m['missing']}' — not loaded")
     app.state.host = host
+
+    # Startup key diagnostics — tells you immediately if .env loaded correctly.
+    # Shows "set" or "NOT SET" without revealing the actual key values.
+    from pathlib import Path as _Path
+    dotenv_file = _Path(__file__).parent / ".env"
+    print(f"  .env file: {'found' if dotenv_file.exists() else 'NOT FOUND — check path'}")
+    for _svc, _var in [("newsapi", "NEWSAPI_KEY"), ("coinmarketcap", "COINMARKETCAP_KEY"),
+                        ("session", "SESSION_SECRET")]:
+        _val = os.getenv(_var, "")
+        print(f"  {_var}: {'set (' + str(len(_val)) + ' chars)' if _val else 'NOT SET'}")
 
     # Call register_routes() on any plugin that defines it.
     # This lets plugins own their own POST routes rather than requiring
@@ -361,15 +374,50 @@ async def config_settings_save(
 
 
 @app.post("/plugin/config/apikeys/save", response_class=HTMLResponse)
-async def config_apikeys_save(request: Request, newsapi_key: str = Form("")):
+async def config_apikeys_save(
+    request:           Request,
+    newsapi_key:       str = Form(""),
+    coinmarketcap_key: str = Form(""),
+):
     host = get_host(request)
     try:
+        saved    = []
+        warnings = []
+
         if newsapi_key.strip():
             host.update_api_key("newsapi", newsapi_key.strip())
-            return success_fragment("API key saved.")
-        return success_fragment("No changes made (field was blank).")
+            saved.append("NewsAPI")
+            # Warn if a key for this service is also in .env
+            if os.getenv("NEWSAPI_KEY"):
+                warnings.append(
+                    "NewsAPI key is also set in .env — "
+                    ".env takes priority over profile keys"
+                )
+
+        if coinmarketcap_key.strip():
+            host.update_api_key("coinmarketcap", coinmarketcap_key.strip())
+            saved.append("CoinMarketCap")
+            if os.getenv("COINMARKETCAP_KEY"):
+                warnings.append(
+                    "CoinMarketCap key is also set in .env — "
+                    ".env takes priority over profile keys"
+                )
+
+        if not saved:
+            return success_fragment("No changes made (all fields were blank).")
+
+        msg = f"Saved: {', '.join(saved)}."
+        if warnings:
+            # Return both a success message and warning messages
+            parts = [f'<div class="success-msg">{msg}</div>']
+            for w in warnings:
+                parts.append(f'<div class="info-msg">⚠ {w}</div>')
+            return HTMLResponse("".join(parts))
+
+        return success_fragment(msg)
+
     except Exception as e:
-        return error_fragment(f"Failed to save API key: {e}")
+        return error_fragment(f"Failed to save API keys: {e}")
 
 
 @app.post("/plugin/config/theme/preset", response_class=HTMLResponse)
@@ -501,80 +549,9 @@ async def news_signal_fetch(request: Request, query: str = Form("Bitcoin")):
 
 
 # ---------------------------------------------------------------------------
-# STRATEGY ENGINE
+# STRATEGY ENGINE — routes moved to plugins/strategy_engine/plugin.py
+# register_routes() is called automatically at startup.
 # ---------------------------------------------------------------------------
-
-@app.post("/plugin/strategy_engine/run", response_class=HTMLResponse)
-async def strategy_engine_run(
-    request: Request,
-    symbol:              str                 = Form("BTC-USD"),
-    interval:            str                 = Form("5m"),
-    period:              str                 = Form("1mo"),
-    selected_strategies: Optional[List[str]] = Form(None),
-):
-    form_data = await request.form()
-    weights   = {}
-    for key, value in form_data.multi_items():
-        if key.startswith("weight_"):
-            name = key[len("weight_"):]
-            try:
-                weights[name] = float(value)
-            except (ValueError, TypeError):
-                weights[name] = 1.0
-
-    save_plugin_state(request, "strategy_engine",
-                      {"symbol": symbol, "interval": interval, "period": period})
-
-    if not selected_strategies:
-        return HTMLResponse(
-            '<div class="error-msg">No strategies selected.</div>')
-
-    for name in selected_strategies:
-        weights.setdefault(name, 1.0)
-
-    host    = get_host(request)
-    context = PluginContext(host)
-
-    try:
-        sm             = host.plugins["strategy_engine"]["module"]
-        buy_threshold  = sm.BUY_THRESHOLD
-        sell_threshold = sm.SELL_THRESHOLD
-        signal_scores  = sm.SIGNAL_SCORES
-    except (KeyError, AttributeError):
-        buy_threshold  = 0.25
-        sell_threshold = -0.25
-        signal_scores  = {"BUY": 1.0, "SELL": -1.0, "HOLD": 0.0, "WATCH": 0.0}
-
-    try:
-        result = context.request("market.strategy.signal", {
-            "symbol": symbol, "interval": interval, "period": period,
-            "strategies": selected_strategies, "weights": weights,
-        })
-    except Exception as e:
-        return templates.TemplateResponse(
-            request=request, name="partials/strategy_engine_results.html",
-            context={"error": str(e)}
-        )
-    if result["status"] != "success":
-        return templates.TemplateResponse(
-            request=request, name="partials/strategy_engine_results.html",
-            context={"error": result.get("message", "Unknown error")}
-        )
-    data = result["data"]
-    return templates.TemplateResponse(
-        request=request, name="partials/strategy_engine_results.html",
-        context={
-            "error": None, "symbol": symbol,
-            "combined":        data.get("combined", {}),
-            "signals":         data.get("signals", {}),
-            "weights":         data.get("weights", {}),
-            "strategy_errors": data.get("strategy_errors", {}),
-            "market_meta":     data.get("market_meta", {}),
-            "signal_scores":   signal_scores,
-            "buy_threshold":   buy_threshold,
-            "sell_threshold":  sell_threshold,
-        }
-    )
 
 
 # ---------------------------------------------------------------------------

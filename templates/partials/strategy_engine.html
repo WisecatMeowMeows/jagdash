@@ -1,15 +1,22 @@
 <!--
     partials/strategy_engine.html
-    ui.symbol, ui.interval, ui.period restored from session.
+    Multi-strategy signal dashboard.
+
+    Variables:
+        strategies      — list of {name, type, description, source, min_candles}
+        errors          — dict of {filename: error_message} from strategy discovery
+        market_settings — dict {symbol, interval, period, source} from market.settings
+        settings_error  — string or None if market.settings call failed
 -->
 
 <div class="plugin-panel" id="panel-strategy">
 
     <div class="plugin-header">
         <h2>Strategy Engine</h2>
-        <p class="plugin-subtitle">Multi-strategy combined signal dashboard</p>
+        <p class="plugin-subtitle">Multi-strategy combined signal analysis</p>
     </div>
 
+    <!-- Strategy discovery errors -->
     {% if errors %}
     <div class="discovery-errors">
         {% for filename, msg in errors.items() %}
@@ -20,54 +27,84 @@
     </div>
     {% endif %}
 
+    <!-- ================================================================
+         READ-ONLY SETTINGS CARD
+         Shows what data the analysis will run on.
+         To change these, go to the Market Data plugin.
+         ================================================================ -->
+    <div class="config-card config-card--wide settings-display-card">
+        <h4 class="config-card-title">Data Settings</h4>
+
+        {% if settings_error %}
+        <div class="info-msg">
+            ⚠ Could not read market settings: {{ settings_error }}.
+            Fetch data in Market Data plugin first.
+        </div>
+        {% else %}
+        <div class="settings-display-row">
+            <div class="settings-display-item">
+                <span class="settings-label">Symbol</span>
+                <span class="settings-value">{{ market_settings.symbol }}</span>
+            </div>
+            <div class="settings-display-item">
+                <span class="settings-label">Interval</span>
+                <span class="settings-value">{{ market_settings.interval }}</span>
+            </div>
+            <div class="settings-display-item">
+                <span class="settings-label">Period</span>
+                <span class="settings-value">{{ market_settings.period }}</span>
+            </div>
+            <div class="settings-display-item">
+                <span class="settings-label">Source</span>
+                <span class="settings-value">{{ market_settings.source }}</span>
+            </div>
+        </div>
+        <p class="section-note">
+            Adjust these settings in the
+            <strong>Market Data</strong> plugin, then return here to run analysis.
+        </p>
+        {% endif %}
+    </div>
+
+    <!-- ================================================================
+         ANALYSIS FORM
+         Only contains strategy selection, weights, and the run button.
+         No symbol/interval/period controls — those live in market_data.
+         ================================================================ -->
     <form id="strategy-form"
           hx-post="/plugin/strategy_engine/run"
           hx-target="#strategy-results"
           hx-swap="innerHTML"
           hx-indicator="#strategy-loading">
+        <div class="form-actions">
+            <button type="submit" class="btn btn--primary btn--large">
+                Run Analysis
+            </button>
+            <!-- Reload strategies without restarting the server -->
+            <button type="button"
+                    class="btn btn--secondary"
+                    hx-post="/plugin/strategy_engine/reload"
+                    hx-target="#strategy-reload-feedback"
+                    hx-swap="innerHTML">
+                ↺ Reload Strategies
+            </button>
+        </div>
 
-        <div class="config-card config-card--wide">
-            <h4 class="config-card-title">Data Parameters</h4>
-            <div class="controls-row">
+        <div id="strategy-reload-feedback"></div>
 
-                <div class="control-group">
-                    <label for="se-symbol">Symbol</label>
-                    <input type="text"
-                           id="se-symbol"
-                           name="symbol"
-                           value="{{ ui.symbol }}"
-                           class="text-input">
-                </div>
+        <div id="strategy-loading" class="htmx-indicator loading-inline">
+            Fetching data and running strategies…
+        </div>
 
-                <div class="control-group">
-                    <label for="se-interval">Interval</label>
-                    <select id="se-interval" name="interval" class="select-input">
-                        {% for opt in interval_options %}
-                        <option value="{{ opt }}" {% if opt == ui.interval %}selected{% endif %}>
-                            {{ opt }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="control-group">
-                    <label for="se-period">Period</label>
-                    <select id="se-period" name="period" class="select-input">
-                        {% for opt in period_options %}
-                        <option value="{{ opt }}" {% if opt == ui.period %}selected{% endif %}>
-                            {{ opt }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-            </div>
+        <div id="strategy-results" class="results-area">
+            <p class="placeholder-msg">Results will appear here after running analysis.</p>
         </div>
 
         <div class="config-card config-card--wide">
             <h4 class="config-card-title">Strategies & Weights</h4>
             <p class="section-note">
-                Enable strategies to include. Weight controls influence on combined signal (0.1–3.0).
+                Enable strategies to include in the combined signal.
+                Weight controls how much each strategy influences the result (0.1–3.0).
             </p>
 
             <div class="strategy-list">
@@ -96,8 +133,12 @@
                             <strong>{{ strat.name }}</strong>
                             {% if strat.type %}<br><em>{{ strat.type }}</em>{% endif %}
                             {% if strat.description %}<p>{{ strat.description }}</p>{% endif %}
-                            {% if strat.min_candles %}<p class="info-meta">Min candles: {{ strat.min_candles }}</p>{% endif %}
-                            {% if strat.file %}<p class="info-meta">File: {{ strat.file }}</p>{% endif %}
+                            {% if strat.min_candles %}
+                            <p class="info-meta">Min candles: {{ strat.min_candles }}</p>
+                            {% endif %}
+                            {% if strat.file %}
+                            <p class="info-meta">File: {{ strat.file }}</p>
+                            {% endif %}
                         </div>
                     </details>
 
@@ -116,18 +157,10 @@
             </div>
         </div>
 
-        <div class="form-actions">
-            <button type="submit" class="btn btn--primary btn--large">Run Analysis</button>
-        </div>
+        
 
     </form>
 
-    <div id="strategy-loading" class="htmx-indicator loading-inline">
-        Fetching data and running strategies…
-    </div>
-
-    <div id="strategy-results" class="results-area">
-        <p class="placeholder-msg">Results will appear here after running analysis.</p>
-    </div>
+ 
 
 </div>

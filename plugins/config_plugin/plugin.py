@@ -18,12 +18,14 @@ def get_ui_context(context):
     active_profile = context.get_active_profile()
     active_name    = profiles[0] if profiles else "default"
     news_key       = context.get_api_key("newsapi")
+    cmc_key        = context.get_api_key("coinmarketcap")
     theme          = get_theme(active_profile)
     return {
         "profiles":       profiles,
         "active_profile": active_profile,
         "active_name":    active_name,
         "news_key_set":   bool(news_key),
+        "cmc_key_set":    bool(cmc_key),
         "theme":          theme,
         "preset_names":   preset_names(),
     }

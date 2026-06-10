@@ -1,26 +1,30 @@
 <!--
     partials/market_data_results.html
-    
-    This fragment is returned by POST /plugin/market_data/fetch
-    and inserted into #market-results by HTMX.
-    
-    Variables available (passed from main.py route handler):
-        symbol          — the requested symbol string
-        latest_close    — float, most recent closing price
-        candle_count    — int, number of candles returned
-        meta            — dict with interval, period, asset_class, etc.
-        records         — list of dicts with OHLCV data
+    Variables: symbol, source_label, latest_close, candle_count,
+               meta, records, warning
 -->
 
 <div class="results-content">
-    
+
+    <!-- Warning banner (CMC free tier or other advisory) -->
+    {% if warning %}
+    <div class="info-msg source-warning">
+        ⚠ {{ warning }}
+    </div>
+    {% endif %}
+
     <!-- Summary bar -->
     <div class="results-summary">
         <div class="metric-card">
             <span class="metric-label">Symbol</span>
             <span class="metric-value">{{ symbol }}</span>
         </div>
-        
+
+        <div class="metric-card">
+            <span class="metric-label">Source</span>
+            <span class="metric-value metric-value--sm">{{ source_label }}</span>
+        </div>
+
         {% if latest_close is not none %}
         <div class="metric-card">
             <span class="metric-label">Latest Close</span>
@@ -29,19 +33,19 @@
             </span>
         </div>
         {% endif %}
-        
+
         <div class="metric-card">
             <span class="metric-label">Candles</span>
             <span class="metric-value">{{ candle_count }}</span>
         </div>
-        
+
         {% if meta.get("interval") %}
         <div class="metric-card">
             <span class="metric-label">Interval</span>
             <span class="metric-value">{{ meta.interval }}</span>
         </div>
         {% endif %}
-        
+
         {% if meta.get("asset_class") %}
         <div class="metric-card">
             <span class="metric-label">Asset Class</span>
@@ -49,54 +53,37 @@
         </div>
         {% endif %}
     </div>
-    
-    <!-- 
-        Data table
-        We show the most recent 50 rows to keep the page responsive.
-        Showing all 1000+ rows in an HTML table is slow and unhelpful.
-        
-        Jinja2 slice syntax: records[-50:] gives the last 50 items,
-        same as Python list slicing. The | reverse filter reverses the list
-        so the most recent data appears at the top.
-    -->
+
+    <!-- Data table — most recent 50 candles, newest first -->
+    {% if candle_count > 1 %}
     <div class="table-wrapper">
         <table class="data-table">
             <thead>
                 <tr>
-                    {% if records and records[0].get("date") %}
-                    <th>Date</th>
-                    {% endif %}
+                    {% if records and records[0].get("date") %}<th>Date</th>{% endif %}
                     {% if records and records[0].get("open") is not none %}
-                    <th>Open</th>
-                    <th>High</th>
-                    <th>Low</th>
+                    <th class="td-num">Open</th>
+                    <th class="td-num">High</th>
+                    <th class="td-num">Low</th>
                     {% endif %}
-                    <th>Close</th>
+                    <th class="td-num">Close</th>
                     {% if records and records[0].get("volume") is not none %}
-                    <th>Volume</th>
+                    <th class="td-num">Volume</th>
                     {% endif %}
                 </tr>
             </thead>
             <tbody>
-                <!--
-                    records[-50:] — last 50 records (most recent)
-                    | reverse     — Jinja2 filter, reverses the list
-                    so newest row appears first in the table
-                -->
                 {% for row in records[-50:] | reverse %}
                 <tr>
                     {% if row.get("date") %}
                     <td class="td-date">{{ row.date[:10] }}</td>
                     {% endif %}
-                    
                     {% if row.get("open") is not none %}
                     <td class="td-num">{{ "%.2f"|format(row.open) }}</td>
                     <td class="td-num">{{ "%.2f"|format(row.high) }}</td>
                     <td class="td-num">{{ "%.2f"|format(row.low) }}</td>
                     {% endif %}
-                    
                     <td class="td-num td-close">{{ "%.2f"|format(row.close) }}</td>
-                    
                     {% if row.get("volume") is not none %}
                     <td class="td-num td-volume">{{ "{:,.0f}".format(row.volume) }}</td>
                     {% endif %}
@@ -105,9 +92,19 @@
             </tbody>
         </table>
     </div>
-    
+
     {% if candle_count > 50 %}
     <p class="table-note">Showing most recent 50 of {{ candle_count }} candles.</p>
     {% endif %}
-    
-</div><!-- end .results-content -->
+
+    {% else %}
+    <!-- Single candle — current price only (CMC free tier) -->
+    <div class="single-price-display">
+        <p class="section-note">
+            Only current price data is available for this source/plan.
+            Historical candle data is not available.
+        </p>
+    </div>
+    {% endif %}
+
+</div>

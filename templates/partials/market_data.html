@@ -1,15 +1,14 @@
 <!--
     partials/market_data.html
-    ui.symbol, ui.interval, ui.period come from the session via get_plugin_state().
-    On first visit they equal UI_DEFAULTS["market_data"] in main.py.
-    After a fetch they are whatever the user last submitted.
+    Variables: ui.symbol, ui.interval, ui.period, ui.source
+    source_options: list of {value, label, note} dicts passed from get_ui_context()
 -->
 
 <div class="plugin-panel" id="panel-market-data">
 
     <div class="plugin-header">
         <h2>Market Data</h2>
-        <p class="plugin-subtitle">Fetch price history via Yahoo Finance</p>
+        <p class="plugin-subtitle">Fetch price history from multiple sources</p>
     </div>
 
     <form class="plugin-controls"
@@ -20,13 +19,36 @@
 
         <div class="controls-row">
 
+            <!-- Source selector -->
+            <div class="control-group">
+                <label for="md-source">Data Source</label>
+                <select id="md-source" name="source" class="select-input"
+                        onchange="updateSourceNote(this)">
+                    {% for src in source_options %}
+                    <option value="{{ src.value }}"
+                        {% if src.value == ui.source %}selected{% endif %}>
+                        {{ src.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <!--
+                    Source note — updates dynamically when source changes.
+                    Shows usage hints without requiring a server round-trip.
+                -->
+                <p id="source-note" class="source-note">
+                    {% for src in source_options %}
+                    {% if src.value == ui.source %}{{ src.note }}{% endif %}
+                    {% endfor %}
+                </p>
+            </div>
+
             <div class="control-group">
                 <label for="md-symbol">Symbol</label>
                 <input type="text"
                        id="md-symbol"
                        name="symbol"
                        value="{{ ui.symbol }}"
-                       placeholder="e.g. BTC-USD, AAPL, ETH-USD"
+                       placeholder="e.g. BTC-USD, BTC, AAPL"
                        class="text-input">
             </div>
 
@@ -72,3 +94,18 @@
     </div>
 
 </div>
+
+<script>
+    // Source note lookup — keyed by source value, populated from server data.
+    // Avoids a server round-trip just to update a hint text.
+    var sourceNotes = {
+        {% for src in source_options %}
+        "{{ src.value }}": "{{ src.note }}",
+        {% endfor %}
+    };
+
+    function updateSourceNote(select) {
+        var note = sourceNotes[select.value] || "";
+        document.getElementById("source-note").textContent = note;
+    }
+</script>

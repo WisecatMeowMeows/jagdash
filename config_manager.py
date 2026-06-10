@@ -89,27 +89,25 @@ class ConfigManager:
         Get an API key by service name.
 
         Lookup order:
-          1. Active profile's api_keys dict (user-entered via config UI)
-          2. Environment variable named <SERVICE_NAME>_KEY in uppercase
-             e.g. service_name="newsapi" -> env var "NEWSAPI_KEY"
+          1. Environment variable (highest priority — avoids accidental
+             stale keys in the profile taking precedence)
+          2. Active profile's api_keys dict (user-entered via config UI)
 
-        This means keys set in .env work automatically without any UI config,
-        and keys entered via the config plugin UI take precedence over .env.
-
-        Returns empty string if not found anywhere, matching original behavior.
+        Returns empty string if not found anywhere.
         """
-        # Check profile first
-        profile = self.get_active_profile()
-        profile_key = profile.get("api_keys", {}).get(service_name, "")
-        if profile_key:
-            return profile_key
-
-        # Fall back to environment variable
+        # Check environment variable first
         # Convention: service "newsapi" -> env var "NEWSAPI_KEY"
+        #             service "coinmarketcap" -> env var "COINMARKETCAP_KEY"
         env_var_name = f"{service_name.upper()}_KEY"
         env_key = os.getenv(env_var_name, "")
         if env_key:
             return env_key
+
+        # Fall back to profile (user-entered via config UI)
+        profile = self.get_active_profile()
+        profile_key = profile.get("api_keys", {}).get(service_name, "")
+        if profile_key:
+            return profile_key
 
         return ""
 

@@ -1,14 +1,15 @@
-# strategy_engine.py
-# JagDash Strategy Engine Plugin v1.3
-# NiteTrader Plugin Ecosystem
+# strategy_engine/plugin.py
+# JagDash Strategy Engine Plugin v1.4
 #
 # Provides: market.strategy.signal
-# Requires: market.price
+# Requires: market.price, market.settings
 #
-# v1.3 changes:
-#   - Info popovers (ℹ) with per-strategy descriptions in the UI
-#   - YAML/JSON declarative strategy support in strategies/ subdirectory
-#   - Unified strategy metadata (description, source, type) across all strategies
+# v1.4 changes:
+#   - Conforms to JagDash plugin contract v2: register_routes(), ui_defaults
+#   - Passes source through to market.price so strategies use the same
+#     data source as market_data plugin (yahoo/hyperliquid/coinmarketcap)
+#   - Syncs source from market.settings if not supplied in payload
+#   - Removed render_ui() (was Streamlit, already deleted)
 
 import importlib.util
 import pandas as pd
@@ -16,18 +17,13 @@ import numpy as np
 
 from pathlib import Path
 
-# yaml is imported lazily inside _load_declarative_file() so that:
-#   (a) a missing PyYAML doesn't prevent the plugin from loading at all
-#   (b) clicking "Reload Strategies" after installing PyYAML works without
-#       restarting the Streamlit server
-
 
 PLUGIN_NAME    = "Strategy Engine"
 STRATEGIES_DIR = Path(__file__).parent / "strategies"
 
 
 # ============================================================
-# SIGNAL VOCABULARY  (per JagDash spec)
+# SIGNAL VOCABULARY
 # ============================================================
 
 SIGNAL_SCORES: dict[str, float] = {
@@ -49,37 +45,67 @@ DEFAULT_WEIGHT = 1.0
 def manifest() -> dict:
     return {
         "name":     "strategy_engine",
-        "version":  "1.3",
+        "version":  "1.4",
         "provides": ["market.strategy.signal"],
-        "requires": ["market.price"],
+        "requires": ["market.price", "market.settings"],
+        "ui_defaults": {
+            "symbol":   "BTC-USD",
+            "interval": "5m",
+            "period":   "1mo",
+            "source":   "yahoo",
+        }
     }
+
 
 # ============================================================
 # GET UI CONTEXT
 # ============================================================
 
 def get_ui_context(context):
-    """Return data needed by partials/strategy_engine.html"""
+    """Return data needed by partials/strategy_engine.html.
+
+    Settings (symbol, interval, period, source) are read from market.settings
+    and displayed read-only. The user adjusts them in market_data plugin.
+    """
     strategy_list = []
     for name in STRATEGIES:
         meta = _strategy_meta.get(name, {})
         strategy_list.append({
-            "name": name,
-            "type": meta.get("type", ""),
+            "name":        name,
+            "type":        meta.get("type", ""),
             "description": meta.get("description", ""),
-            "source": meta.get("source", "built-in"),
+            "source":      meta.get("source", "built-in"),
             "min_candles": meta.get("min_candles", 0),
-            "file": meta.get("file", ""),
+            "file":        meta.get("file", ""),
         })
-    return {
-        "strategies": strategy_list,
-        "interval_options": ["1m","2m","5m","15m","30m","60m","90m","1h","1d","1wk","1mo"],
-        "period_options": ["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"],
-        "errors": _discovery_errors,
+
+    # Fetch current market settings for display (read-only in this plugin)
+    market_settings = {
+        "symbol":   "BTC-USD",
+        "interval": "—",
+        "period":   "—",
+        "source":   "yahoo",
     }
+    settings_error = None
+    try:
+        result = context.request("market.settings", {})
+        if result.get("status") == "success":
+            market_settings.update(result["data"])
+        else:
+            settings_error = result.get("message", "market.settings unavailable")
+    except Exception as e:
+        settings_error = str(e)
+
+    return {
+        "strategies":       strategy_list,
+        "errors":           _discovery_errors,
+        "market_settings":  market_settings,
+        "settings_error":   settings_error,
+    }
+
+
 # ============================================================
 # INDICATORS
-# Stateless; always operate on a copy of the series.
 # ============================================================
 
 def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -100,7 +126,6 @@ def calculate_macd(series: pd.Series) -> tuple[pd.Series, pd.Series]:
 
 # ============================================================
 # BUILT-IN STRATEGY FUNCTIONS
-# Contract: f(df: pd.DataFrame) -> str
 # ============================================================
 
 def sma_crossover(df: pd.DataFrame) -> str:
@@ -168,7 +193,6 @@ def volatility_squeeze(df: pd.DataFrame) -> str:
 
 # ============================================================
 # BUILT-IN METADATA
-# Descriptions shown in the ℹ popover for each built-in strategy.
 # ============================================================
 
 BUILTIN_META: dict[str, dict] = {
@@ -219,8 +243,7 @@ BUILTIN_META: dict[str, dict] = {
     "Volatility Squeeze": {
         "description": (
             "Detects when Bollinger Bands compress inside Keltner Channels — a sign that "
-            "volatility is contracting and a breakout is likely building. Think of it like "
-            "a spring being wound: the squeeze is the tension, not the direction. "
+            "volatility is contracting and a breakout is likely building. "
             "When the squeeze is active, RSI bias picks the expected direction (BUY/SELL); "
             "if RSI is neutral, returns WATCH. When no squeeze, returns HOLD. "
             "Uses a close-only ATR approximation (no OHLCV required)."
@@ -246,38 +269,24 @@ BUILTIN_STRATEGIES: dict[str, callable] = {
 
 # ============================================================
 # DECLARATIVE (YAML/JSON) STRATEGY ENGINE
-# Compiles a config dict → signal(df) callable.
 # ============================================================
 
-def _build_indicator_value(
-    df: pd.DataFrame, itype: str, params: dict
-) -> float:
-    """Compute one scalar indicator value from the dataframe's close series."""
+def _build_indicator_value(df: pd.DataFrame, itype: str, params: dict) -> float:
     close = df["close"]
-
     if itype == "close":
         return float(close.iloc[-1])
-
     elif itype == "sma":
-        period = int(params.get("period", 20))
-        return float(close.rolling(period).mean().iloc[-1])
-
+        return float(close.rolling(int(params.get("period", 20))).mean().iloc[-1])
     elif itype == "ema":
-        period = int(params.get("period", 20))
-        return float(close.ewm(span=period, adjust=False).mean().iloc[-1])
-
+        return float(close.ewm(span=int(params.get("period", 20)),
+                                adjust=False).mean().iloc[-1])
     elif itype == "rsi":
-        period = int(params.get("period", 14))
-        return float(calculate_rsi(close, period).iloc[-1])
-
+        return float(calculate_rsi(close, int(params.get("period", 14))).iloc[-1])
     elif itype == "macd":
         fast = int(params.get("fast", 12))
         slow = int(params.get("slow", 26))
-        return float(
-            (close.ewm(span=fast, adjust=False).mean()
-             - close.ewm(span=slow, adjust=False).mean()).iloc[-1]
-        )
-
+        return float((close.ewm(span=fast, adjust=False).mean()
+                      - close.ewm(span=slow, adjust=False).mean()).iloc[-1])
     elif itype == "macd_signal":
         fast = int(params.get("fast", 12))
         slow = int(params.get("slow", 26))
@@ -285,40 +294,29 @@ def _build_indicator_value(
         macd_line = (close.ewm(span=fast, adjust=False).mean()
                      - close.ewm(span=slow, adjust=False).mean())
         return float(macd_line.ewm(span=sig, adjust=False).mean().iloc[-1])
-
     elif itype == "bb_upper":
         period = int(params.get("period", 20))
         std    = float(params.get("std", 2.0))
         return float((close.rolling(period).mean()
                       + std * close.rolling(period).std()).iloc[-1])
-
     elif itype == "bb_lower":
         period = int(params.get("period", 20))
         std    = float(params.get("std", 2.0))
         return float((close.rolling(period).mean()
                       - std * close.rolling(period).std()).iloc[-1])
-
     elif itype == "bb_mid":
-        period = int(params.get("period", 20))
-        return float(close.rolling(period).mean().iloc[-1])
-
+        return float(close.rolling(int(params.get("period", 20))).mean().iloc[-1])
     elif itype == "rolling_high":
-        period = int(params.get("period", 20))
-        return float(close.rolling(period).max().iloc[-1])
-
+        return float(close.rolling(int(params.get("period", 20))).max().iloc[-1])
     elif itype == "rolling_low":
-        period = int(params.get("period", 20))
-        return float(close.rolling(period).min().iloc[-1])
-
+        return float(close.rolling(int(params.get("period", 20))).min().iloc[-1])
     elif itype == "atr":
         period = int(params.get("period", 14))
         return float(close.diff().abs().rolling(period).mean().iloc[-1])
-
     elif itype == "volume":
         if "volume" in df.columns:
             return float(df["volume"].iloc[-1])
         return float("nan")
-
     return float("nan")
 
 
@@ -333,57 +331,35 @@ _CONDITION_OPS: dict[str, callable] = {
 
 
 def _eval_condition(cond: list, values: dict[str, float]) -> bool:
-    """
-    Evaluate a single condition: [left_var, operator, right_var_or_literal].
-    Returns False if either operand is NaN or the operator is unrecognised.
-    """
     if not isinstance(cond, list) or len(cond) != 3:
         return False
-
     left_name, op_str, right = cond
-    left_val = values.get(str(left_name), float("nan"))
-
-    right_val = values.get(str(right), float("nan")) \
-                if isinstance(right, str) \
-                else float(right)
-
+    left_val  = values.get(str(left_name), float("nan"))
+    right_val = (values.get(str(right), float("nan"))
+                 if isinstance(right, str) else float(right))
     if pd.isna(left_val) or pd.isna(right_val):
         return False
-
     op_fn = _CONDITION_OPS.get(str(op_str))
     return bool(op_fn(left_val, right_val)) if op_fn else False
 
 
 def _eval_when(when, values: dict[str, float]) -> bool:
-    """
-    Evaluate a `when` block. Supports:
-      - Single condition:  [var, op, val]
-      - all: [...]         every condition must be true (AND)
-      - any: [...]         at least one condition must be true (OR)
-    """
     if isinstance(when, list):
         return _eval_condition(when, values)
-
     if isinstance(when, dict):
         if "all" in when:
             return all(_eval_condition(c, values) for c in when["all"])
         if "any" in when:
             return any(_eval_condition(c, values) for c in when["any"])
-
     return False
 
 
 def _make_declarative_signal_fn(config: dict) -> callable:
-    """
-    Compile a YAML/JSON config dict into a signal(df) -> str callable.
-    The returned function is self-contained and follows the standard strategy contract.
-    """
-    indicators_cfg: dict = config.get("indicators", {})
-    rules: list          = config.get("rules", [])
+    indicators_cfg = config.get("indicators", {})
+    rules          = config.get("rules", [])
 
     def signal(df: pd.DataFrame) -> str:
         try:
-            # Step 1: compute all declared indicator values
             values: dict[str, float] = {}
             for var_name, cfg in indicators_cfg.items():
                 if isinstance(cfg, dict):
@@ -394,7 +370,6 @@ def _make_declarative_signal_fn(config: dict) -> callable:
                     params = {}
                 values[var_name] = _build_indicator_value(df, itype, params)
 
-            # Step 2: evaluate rules top-to-bottom; return first match
             for rule in rules:
                 if rule.get("default"):
                     return str(rule.get("signal", "HOLD")).upper()
@@ -402,61 +377,37 @@ def _make_declarative_signal_fn(config: dict) -> callable:
                 if when is not None and _eval_when(when, values):
                     sig = str(rule.get("signal", "HOLD")).upper()
                     return sig if sig in SIGNAL_SCORES else "HOLD"
-
         except Exception:
-            pass    # any unexpected failure → safe fallback
-
+            pass
         return "HOLD"
 
     return signal
 
 
 def _load_declarative_file(path: Path) -> tuple[dict | None, str | None]:
-    """
-    Parse a .yaml / .yml / .json strategy file.
-    Returns (config_dict, None) on success, (None, error_message) on failure.
-
-    yaml is imported here (not at module level) so that:
-    - A missing PyYAML doesn't prevent the plugin from loading.
-    - Installing PyYAML then clicking Reload Strategies works without
-      a full Streamlit server restart (module-level flags don't re-evaluate).
-    """
     try:
         import yaml
     except ImportError:
         return None, "PyYAML not installed — run: python -m pip install pyyaml"
-
     try:
-        text = path.read_text(encoding="utf-8")
-        config = yaml.safe_load(text)   # safe_load also handles JSON
+        text   = path.read_text(encoding="utf-8")
+        config = yaml.safe_load(text)
     except Exception as e:
         return None, f"Parse error: {e}"
-
     if not isinstance(config, dict):
         return None, "Top-level structure must be a YAML mapping (key: value)"
-
     if "rules" not in config:
         return None, "Missing required 'rules' list"
-
     return config, None
 
 
 # ============================================================
-# EXTERNAL STRATEGY DISCOVERY  (Python + YAML/JSON)
+# EXTERNAL STRATEGY DISCOVERY
 # ============================================================
 
 def _discover_external_strategies(
     directory: Path,
 ) -> tuple[dict[str, callable], dict[str, dict], dict[str, str]]:
-    """
-    Scan `directory` for .py and .yaml/.yml/.json strategy files.
-    Files starting with _ are skipped.
-
-    Returns:
-        discovered : {display_name: signal_fn}
-        meta       : {display_name: {description, source, type, ...}}
-        errors     : {filename: error_message}
-    """
     discovered: dict[str, callable] = {}
     meta:       dict[str, dict]     = {}
     errors:     dict[str, str]      = {}
@@ -464,7 +415,6 @@ def _discover_external_strategies(
     if not directory.is_dir():
         return discovered, meta, errors
 
-    # Collect all candidate files: .py, .yaml, .yml, .json
     candidates = sorted(
         p for p in directory.iterdir()
         if p.suffix in {".py", ".yaml", ".yml", ".json"}
@@ -472,7 +422,6 @@ def _discover_external_strategies(
     )
 
     for path in candidates:
-        # ---- Python strategy ----------------------------------------
         if path.suffix == ".py":
             module_id = f"_jagdash_ext_{path.stem}"
             try:
@@ -480,20 +429,16 @@ def _discover_external_strategies(
                 if spec is None or spec.loader is None:
                     errors[path.name] = "importlib could not read file"
                     continue
-
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-
                 if not hasattr(module, "signal") or not callable(module.signal):
                     errors[path.name] = "Missing or non-callable signal(df) function"
                     continue
-
-                # Resolve name + description from optional manifest()
                 if hasattr(module, "manifest") and callable(module.manifest):
                     try:
-                        m    = module.manifest()
-                        name = m.get("name") or path.stem.replace("_", " ").title()
-                        desc = m.get("description", "")
+                        m     = module.manifest()
+                        name  = m.get("name") or path.stem.replace("_", " ").title()
+                        desc  = m.get("description", "")
                         mtype = m.get("type", "External / Python")
                     except Exception as e:
                         name  = path.stem.replace("_", " ").title()
@@ -504,42 +449,35 @@ def _discover_external_strategies(
                     name  = path.stem.replace("_", " ").title()
                     desc  = ""
                     mtype = "External / Python"
-
+                    m     = {}
                 if name in BUILTIN_STRATEGIES:
                     errors[path.name] = f"Note: '{name}' overrides a built-in strategy"
-
                 discovered[name] = module.signal
                 meta[name] = {
                     "description": desc,
                     "type":        mtype,
                     "source":      "external-python",
                     "file":        path.name,
-                    "min_candles": int(m.get("min_candles", 0)) if hasattr(module, "manifest") else 0,
+                    "min_candles": int(m.get("min_candles", 0)),
                 }
-
             except Exception as e:
                 errors[path.name] = f"Load error: {e}"
 
-        # ---- Declarative (YAML / JSON) strategy ---------------------
         elif path.suffix in {".yaml", ".yml", ".json"}:
             config, err = _load_declarative_file(path)
             if err:
                 errors[path.name] = err
                 continue
-
             name  = config.get("name") or path.stem.replace("_", " ").title()
             desc  = config.get("description", "").strip()
             mtype = config.get("type", "External / Declarative")
-
             if name in BUILTIN_STRATEGIES:
                 errors[path.name] = f"Note: '{name}' overrides a built-in strategy"
-
             try:
                 fn = _make_declarative_signal_fn(config)
             except Exception as e:
                 errors[path.name] = f"Compile error: {e}"
                 continue
-
             discovered[name] = fn
             meta[name] = {
                 "description": desc,
@@ -554,7 +492,7 @@ def _discover_external_strategies(
 
 
 # ============================================================
-# ACTIVE STRATEGY TABLE  (built-ins + external)
+# ACTIVE STRATEGY TABLE
 # ============================================================
 
 STRATEGIES:        dict[str, callable] = dict(BUILTIN_STRATEGIES)
@@ -564,17 +502,12 @@ _external_names:   set[str]            = set()
 
 
 def _reload_strategies() -> None:
-    """Rescan strategies/ and rebuild the merged STRATEGIES table."""
     global STRATEGIES, _strategy_meta, _discovery_errors, _external_names
-
     external, ext_meta, errors = _discover_external_strategies(STRATEGIES_DIR)
-
     _discovery_errors = errors
     _external_names   = set(external.keys())
-
-    # Merge: built-ins first, external on top (external wins on collision)
-    STRATEGIES     = {**BUILTIN_STRATEGIES, **external}
-    _strategy_meta = {**BUILTIN_META, **ext_meta}
+    STRATEGIES        = {**BUILTIN_STRATEGIES, **external}
+    _strategy_meta    = {**BUILTIN_META, **ext_meta}
 
 
 _reload_strategies()
@@ -590,22 +523,18 @@ def compute_combined_signal(
 ) -> dict:
     weighted_score = 0.0
     total_weight   = 0.0
-
     for name, sig in results.items():
         w = weights.get(name, DEFAULT_WEIGHT)
-        if w <= 0.0: continue
+        if w <= 0.0:
+            continue
         weighted_score += w * SIGNAL_SCORES.get(sig, 0.0)
         total_weight   += w
-
     if total_weight == 0.0:
         return {"signal": "HOLD", "score": 0.0, "confidence": 0.0}
-
     normalized = weighted_score / total_weight
-
-    if normalized >= BUY_THRESHOLD:   combined = "BUY"
+    if normalized >= BUY_THRESHOLD:    combined = "BUY"
     elif normalized <= SELL_THRESHOLD: combined = "SELL"
-    else:                              combined = "HOLD"
-
+    else:                               combined = "HOLD"
     return {
         "signal":     combined,
         "score":      round(normalized, 4),
@@ -633,110 +562,51 @@ def _normalize_market_data(
             return None, "Unsupported market data format"
     else:
         return None, f"Invalid market data type: {type(market_data)}"
-
-    if df.empty:                    return None, "Market dataframe is empty"
-    if "close" not in df.columns:  return None, "Missing required 'close' column"
-
-    # Absolute floor: 3 rows lets diff() and rolling(2) produce at least one
-    # non-NaN value. Beyond this, strategies self-manage — insufficient data
-    # for an indicator returns NaN, NaN conditions fail, default HOLD fires.
-    # No higher global gate; each strategy declares its own min_candles.
+    if df.empty:
+        return None, "Market dataframe is empty"
+    if "close" not in df.columns:
+        return None, "Missing required 'close' column"
     if len(df) < 3:
         return None, f"Market data too short: {len(df)} candle(s); need at least 3"
-
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
-    if df["close"].isna().all():   return None, "All 'close' values are non-numeric"
-
+    if df["close"].isna().all():
+        return None, "All 'close' values are non-numeric"
     return df, None
-
 
 
 # ============================================================
 # MARKET METADATA EXTRACTOR
-#
-# Works in two modes:
-#   NOW  — infers what it can from the raw dataframe (candle count,
-#           available columns, date range if timestamps are present,
-#           last price and price range).
-#   FUTURE — if market.price starts returning a top-level "meta" dict
-#           alongside "data", those fields are used directly and take
-#           precedence.  No changes needed here when that upgrade lands.
-#
-# Fields market_data should provide in its "meta" dict (spec for upgrade):
-#   interval   : str   — "1d" | "1h" | "5m" | ...
-#   source     : str   — "yfinance" | "alpaca" | ...
-#   asset_class: str   — "crypto" | "equity" | "forex" | ...
-#   currency   : str   — "USD" | "EUR" | ...
-#   date_from  : str   — ISO-8601 first candle timestamp
-#   date_to    : str   — ISO-8601 last candle timestamp
 # ============================================================
 
 def _infer_period_string(candle_count: int, interval: str) -> tuple[str, bool]:
-    """
-    Convert (candle_count, interval) → (human-readable span, is_estimated).
-
-    is_estimated is True when the interval was assumed rather than provided.
-
-    Two calculation paths:
-    - INTRADAY ("1m".."1h"): use trading-session minutes (390 min/day).
-    - DAILY / WEEKLY / MONTHLY: use calendar units.
-      "1d" uses 365.25 calendar days/year rather than 252 trading days.
-      This is accurate for 24/7 assets (crypto) and a reasonable approximation
-      for traditional markets; the old 252-day divisor was badly wrong for crypto
-      (5 years of BTC daily data showed as 7.25 years).
-    """
     INTRADAY_MINUTES: dict[str, int] = {
         "1m": 1, "2m": 2, "5m": 5, "15m": 15,
         "30m": 30, "60m": 60, "90m": 90, "1h": 60,
     }
-
     assumed = (interval not in INTRADAY_MINUTES
                and interval not in {"1d", "1wk", "1mo"})
-
-    # ── Daily / weekly / monthly: calendar-unit math ─────────────────
-    if interval == "1d" or (assumed):            # unknown → assume daily
+    if interval == "1d" or assumed:
         days = candle_count
-        if days < 14:
-            return f"~{days} days", assumed
-        elif days < 60:
-            return f"~{days / 7:.1f} wk", assumed
-        elif days < 365:
-            return f"~{days / 30.44:.1f} mo", assumed
-        else:
-            return f"~{days / 365.25:.2f} yr", assumed
-
+        if days < 14:    return f"~{days} days", assumed
+        elif days < 60:  return f"~{days / 7:.1f} wk", assumed
+        elif days < 365: return f"~{days / 30.44:.1f} mo", assumed
+        else:            return f"~{days / 365.25:.2f} yr", assumed
     if interval == "1wk":
         weeks = candle_count
-        if weeks < 8:
-            return f"~{weeks} wk", False
-        elif weeks < 52:
-            return f"~{weeks / 4.33:.1f} mo", False
-        else:
-            return f"~{weeks / 52:.2f} yr", False
-
+        if weeks < 8:   return f"~{weeks} wk", False
+        elif weeks < 52: return f"~{weeks / 4.33:.1f} mo", False
+        else:            return f"~{weeks / 52:.2f} yr", False
     if interval == "1mo":
         months = candle_count
-        if months < 12:
-            return f"~{months} mo", False
-        else:
-            return f"~{months / 12:.1f} yr", False
-
-    # ── Intraday: trading-session-minute math ─────────────────────────
+        if months < 12: return f"~{months} mo", False
+        else:           return f"~{months / 12:.1f} yr", False
     total_minutes = candle_count * INTRADAY_MINUTES[interval]
-
-    if total_minutes < 120:
-        return f"~{int(total_minutes)} min", False
-    elif total_minutes <= 60 * 48:
-        return f"~{total_minutes / 60:.1f} hr", False
-    elif total_minutes < 390 * 15:
-        return f"~{total_minutes / 390:.0f} trading days", False
-    elif total_minutes < 390 * 63:
-        return f"~{total_minutes / (390 * 5):.1f} wk", False
-    elif total_minutes < 390 * 252:
-        return f"~{total_minutes / (390 * 21):.1f} mo", False
-    else:
-        return f"~{total_minutes / (390 * 252):.2f} yr", False
-
+    if total_minutes < 120:          return f"~{int(total_minutes)} min", False
+    elif total_minutes <= 60 * 48:   return f"~{total_minutes / 60:.1f} hr", False
+    elif total_minutes < 390 * 15:   return f"~{total_minutes / 390:.0f} trading days", False
+    elif total_minutes < 390 * 63:   return f"~{total_minutes / (390 * 5):.1f} wk", False
+    elif total_minutes < 390 * 252:  return f"~{total_minutes / (390 * 21):.1f} mo", False
+    else:                             return f"~{total_minutes / (390 * 252):.2f} yr", False
 
 
 def _extract_market_meta(
@@ -744,66 +614,35 @@ def _extract_market_meta(
     df: pd.DataFrame,
     symbol: str,
 ) -> dict:
-    """
-    Build a display-ready metadata dict from the market.price response.
-    Always includes inferred fields; merges in any provided meta fields.
-    """
-    meta: dict = {}
-
-    # --- Merge explicitly provided metadata (from market_data's meta dict) ---
-    provided = market_response.get("meta") or {}
-
-    # Symbol — always known from the request
-    meta["symbol"] = symbol
-
-    # Candle count — prefer authoritative value from market_data
+    meta:     dict = {}
+    provided: dict = market_response.get("meta") or {}
+    meta["symbol"]       = symbol
     meta["candle_count"] = provided.get("candles", len(df))
-
-    # Interval — provided by market_data; fall back to "1d"
-    meta["interval"] = provided.get("interval", "1d")
-
-    # Columns — market_data gives us the real list from records[0].keys();
-    # this is more authoritative than inferring from df.columns
-    meta["columns"] = provided.get("columns") or sorted(df.columns.tolist())
-
-    # --- Price snapshot (always inferred from the dataframe) ---
+    meta["interval"]     = provided.get("interval", "1d")
+    meta["columns"]      = provided.get("columns") or sorted(df.columns.tolist())
     close = df["close"].dropna()
     if not close.empty:
         meta["price_last"] = round(float(close.iloc[-1]), 6)
         meta["price_min"]  = round(float(close.min()),    6)
         meta["price_max"]  = round(float(close.max()),    6)
-
-    # --- Source, asset class, currency (present only when market_data provides) ---
-    for key in ("source", "asset_class", "currency"):
+    for key in ("source", "source_label", "asset_class", "currency"):
         if key in provided:
             meta[key] = provided[key]
-
-    # --- Time period display ---
-    # Priority order:
-    #   1. Explicit date range (start + end) — most precise
-    #   2. yfinance period string ("6mo", "5y") — exact, user-chosen
-    #   3. Inferred from candle count — fallback when neither is available
     start_date = provided.get("start")
     end_date   = provided.get("end")
-
     if start_date and end_date:
         meta["period_str"]       = f"{start_date}  →  {end_date}"
         meta["period_estimated"] = False
-
     elif provided.get("period"):
-        # Use the yfinance period string directly — it's what was requested
         meta["period_str"]       = provided["period"]
         meta["period_estimated"] = False
-
     else:
-        # Nothing provided — infer from candle count and interval
-        span, unrecognized = _infer_period_string(
-            meta["candle_count"], meta["interval"]
-        )
+        span, unrecognized       = _infer_period_string(meta["candle_count"],
+                                                         meta["interval"])
         meta["period_str"]       = span
-        meta["period_estimated"] = True   # genuinely unknown
-
+        meta["period_estimated"] = True
     return meta
+
 
 # ============================================================
 # HANDLE REQUEST
@@ -814,24 +653,50 @@ def handle_request(request: dict, context) -> dict:
     payload    = request.get("payload", {})
 
     if capability != "market.strategy.signal":
-        return {"status": "error", "message": f"Unsupported capability: {capability}"}
+        return {"status": "error",
+                "message": f"Unsupported capability: {capability}"}
 
-    symbol   = payload.get("symbol",   "BTC-USD")
-    interval = payload.get("interval", "1d")
-    period   = payload.get("period",   "6mo")
+    symbol   = payload.get("symbol",    "BTC-USD")
+    interval = payload.get("interval",  "5m")
+    period   = payload.get("period",    "1mo")
     selected = payload.get("strategies", list(STRATEGIES.keys()))
-    weights  = payload.get("weights", {n: DEFAULT_WEIGHT for n in selected})
+    weights  = payload.get("weights",   {n: DEFAULT_WEIGHT for n in selected})
+
+    # ── Source resolution ────────────────────────────────────────────────
+    # Priority:
+    #   1. Explicitly passed in payload (e.g. from strategy_engine UI)
+    #   2. Current source from market.settings (keeps in sync with market_data)
+    #   3. Default "yahoo"
+    #
+    # This means strategy_engine always uses the same data source as
+    # market_data without requiring the user to configure it twice.
+    source = payload.get("source")
+    if not source:
+        try:
+            settings = context.request("market.settings", {})
+            if settings.get("status") == "success":
+                source = settings["data"].get("source", "yahoo")
+        except Exception:
+            pass
+    if not source:
+        source = "yahoo"
 
     unknown = [s for s in selected if s not in STRATEGIES]
     if unknown:
-        return {"status": "error", "message": f"Unknown strategy name(s): {unknown}"}
+        return {"status": "error",
+                "message": f"Unknown strategy name(s): {unknown}"}
     if not selected:
         return {"status": "error", "message": "No strategies selected"}
 
     try:
         market_response = context.request(
             "market.price",
-            {"symbol": symbol, "interval": interval, "period": period},
+            {
+                "symbol":   symbol,
+                "interval": interval,
+                "period":   period,
+                "source":   source,   # ← pass source through to market_data
+            },
         )
     except Exception as e:
         return {"status": "error", "message": f"market.price raised: {e}"}
@@ -845,17 +710,13 @@ def handle_request(request: dict, context) -> dict:
 
     individual_results: dict[str, str] = {}
     strategy_errors:    dict[str, str] = {}
-
     n_candles = len(df)
 
     for name in selected:
-        # Respect per-strategy minimum candle requirement if declared.
-        # Strategies that can't compute return HOLD via NaN propagation anyway,
-        # but surfacing the reason is more useful than a silent HOLD.
         min_c = _strategy_meta.get(name, {}).get("min_candles", 0)
         if min_c and n_candles < min_c:
             individual_results[name] = "HOLD"
-            strategy_errors[name] = (
+            strategy_errors[name]    = (
                 f"Needs ≥{min_c} candles; got {n_candles} — returning HOLD"
             )
             continue
@@ -878,6 +739,7 @@ def handle_request(request: dict, context) -> dict:
         "status": "success",
         "data": {
             "symbol":          symbol,
+            "source":          source,
             "candle_count":    n_candles,
             "market_meta":     market_meta,
             "signals":         individual_results,
@@ -889,7 +751,7 @@ def handle_request(request: dict, context) -> dict:
 
 
 # ============================================================
-# UI HELPERS
+# UI HELPERS (used by templates)
 # ============================================================
 
 SIGNAL_STYLE = {
@@ -899,31 +761,137 @@ SIGNAL_STYLE = {
     "WATCH": {"emoji": "🔵", "color": "#3498db"},
 }
 
+
 def _signal_label(signal: str) -> str:
     s = SIGNAL_STYLE.get(signal, {"emoji": "⚪"})
     return f"{s['emoji']} {signal}"
 
-def _score_bar_html(score: float) -> str:
-    pct = max(0, min(100, int((score + 1.0) / 2.0 * 100)))
-    if score >= BUY_THRESHOLD:    color = SIGNAL_STYLE["BUY"]["color"]
-    elif score <= SELL_THRESHOLD: color = SIGNAL_STYLE["SELL"]["color"]
-    else:                          color = SIGNAL_STYLE["HOLD"]["color"]
-    return f"""
-    <div style="background:#333;border-radius:6px;height:18px;position:relative;">
-      <div style="width:{pct}%;background:{color};height:100%;border-radius:6px;
-                  transition:width 0.3s ease;"></div>
-      <div style="position:absolute;top:0;left:50%;width:2px;height:100%;
-                  background:#888;"></div>
-    </div>
-    <div style="display:flex;justify-content:space-between;
-                font-size:0.75em;color:#888;margin-top:2px;">
-      <span>◀ SELL</span><span>HOLD</span><span>BUY ▶</span>
-    </div>"""
-
 
 def _source_badge(name: str) -> str:
-    """Return a small badge string indicating built-in vs external source."""
     if name not in _external_names:
         return ""
     source = _strategy_meta.get(name, {}).get("source", "external")
     return " 📂" if source == "external-python" else " 📄"
+
+
+# ============================================================
+# ROUTE REGISTRATION
+# ============================================================
+
+def register_routes(app, templates, get_host):
+    """
+    Register strategy_engine HTTP routes onto the FastAPI app.
+    Called once at startup — no changes to main.py needed.
+    """
+    from fastapi import Form, Request
+    from fastapi.responses import HTMLResponse
+    from plugin_context import PluginContext
+    from typing import List, Optional
+
+    def _save_state(request, values: dict) -> None:
+        request.session["ui_strategy_engine"] = values
+
+    @app.post("/plugin/strategy_engine/reload", response_class=HTMLResponse)
+    async def strategy_engine_reload(request: Request):
+        """Reload external strategy files without restarting the server."""
+        _reload_strategies()
+        count = len(STRATEGIES)
+        ext   = len(_external_names)
+        errs  = len(_discovery_errors)
+        msg   = f"Reloaded. {count} strategies ({ext} external)"
+        if errs:
+            msg += f", {errs} issue(s) — check strategy list."
+        return HTMLResponse(f'<div class="success-msg">{msg}</div>')
+
+    @app.post("/plugin/strategy_engine/run", response_class=HTMLResponse)
+    async def strategy_engine_run(
+        request:             Request,
+        selected_strategies: Optional[List[str]] = Form(None),
+    ):
+        """
+        Run strategy analysis using current market_data settings.
+        Symbol, interval, period, and source are read from market.settings
+        rather than from form fields — the user sets them in market_data.
+        Weight sliders are the only input from this form.
+        """
+        # Read weight_* fields from raw form (dynamic, one per strategy)
+        form_data = await request.form()
+        weights   = {}
+        for key, value in form_data.multi_items():
+            if key.startswith("weight_"):
+                name = key[len("weight_"):]
+                try:
+                    weights[name] = float(value)
+                except (ValueError, TypeError):
+                    weights[name] = 1.0
+
+        if not selected_strategies:
+            return HTMLResponse(
+                '<div class="error-msg">No strategies selected.</div>'
+            )
+
+        for name in selected_strategies:
+            weights.setdefault(name, 1.0)
+
+        host    = get_host(request)
+        context = PluginContext(host)
+
+        # Read current market settings — single source of truth
+        try:
+            settings_result = context.request("market.settings", {})
+            if settings_result.get("status") == "success":
+                ms = settings_result["data"]
+            else:
+                ms = {}
+        except Exception:
+            ms = {}
+
+        symbol   = ms.get("symbol",   "BTC-USD")
+        interval = ms.get("interval", "5m")
+        period   = ms.get("period",   "1mo")
+        source   = ms.get("source",   "yahoo")
+
+        try:
+            result = context.request(
+                "market.strategy.signal",
+                {
+                    "symbol":     symbol,
+                    "interval":   interval,
+                    "period":     period,
+                    "source":     source,
+                    "strategies": selected_strategies,
+                    "weights":    weights,
+                }
+            )
+        except Exception as e:
+            return templates.TemplateResponse(
+                request=request,
+                name="partials/strategy_engine_results.html",
+                context={"error": str(e)}
+            )
+
+        if result["status"] != "success":
+            return templates.TemplateResponse(
+                request=request,
+                name="partials/strategy_engine_results.html",
+                context={"error": result.get("message", "Unknown error")}
+            )
+
+        data = result["data"]
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/strategy_engine_results.html",
+            context={
+                "error":           None,
+                "symbol":          symbol,
+                "source":          source,
+                "combined":        data.get("combined", {}),
+                "signals":         data.get("signals", {}),
+                "weights":         data.get("weights", {}),
+                "strategy_errors": data.get("strategy_errors", {}),
+                "market_meta":     data.get("market_meta", {}),
+                "signal_scores":   SIGNAL_SCORES,
+                "buy_threshold":   BUY_THRESHOLD,
+                "sell_threshold":  SELL_THRESHOLD,
+            }
+        )

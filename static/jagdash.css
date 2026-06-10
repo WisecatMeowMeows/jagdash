@@ -1931,11 +1931,93 @@ code {
     display: block;
     max-width: 100%;
     max-height: 60px;          /* cap height so it doesn't overwhelm the sidebar */
-    min-width: 80%;
-    min-height: 40px; 
     width: auto;
     height: auto;
     object-fit: contain;       /* preserve aspect ratio */
     margin-bottom: var(--space-sm);
     border-radius: var(--border-radius-sm);
+}
+
+
+/* ============================================================
+   LOGOUT BUTTON (sidebar footer)
+   ============================================================ */
+
+.logout-btn {
+    display: block;
+    margin-top: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    border-radius: var(--border-radius-sm);
+    transition: color var(--transition-fast),
+                background-color var(--transition-fast);
+}
+
+.logout-btn:hover {
+    color: var(--color-error);
+    background-color: rgba(248, 81, 73, 0.08);
+}
+
+
+/* ============================================================
+   MARKET DATA SOURCE SELECTOR
+   ============================================================ */
+
+.source-note {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+    margin-top: var(--space-xs);
+    line-height: 1.4;
+    font-style: italic;
+}
+
+.source-warning {
+    border-color: var(--color-warning);
+    background: rgba(210, 153, 34, 0.08);
+    color: var(--color-warning);
+}
+
+.single-price-display {
+    padding: var(--space-lg);
+    text-align: center;
+}
+
+
+/* ============================================================
+   STRATEGY ENGINE — READ-ONLY SETTINGS DISPLAY
+   ============================================================ */
+
+.settings-display-card {
+    background: var(--color-surface);
+}
+
+.settings-display-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-lg);
+    margin: var(--space-sm) 0;
+}
+
+.settings-display-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 80px;
+}
+
+.settings-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-fg-muted);
+    font-weight: var(--font-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.settings-value {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-accent);
 }

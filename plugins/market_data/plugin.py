@@ -1,44 +1,51 @@
 # market_data/plugin.py
-# JagDash Market Data Plugin v1.2
-# NiteTrader Plugin Ecosystem
+# JagDash Market Data Plugin v1.3
 #
-# Provides: market.price   — fetch OHLCV history via yfinance
+# Provides: market.price   — fetch OHLCV history from multiple sources
 #           market.settings — return current UI configuration (for sync)
 
-
-import yfinance as yf
 import pandas as pd
 import re as _re
+import importlib.util
+import pathlib
+
 
 # ---------------------------------------------------------------------------
-# Valid yfinance period / interval combinations.
-# yfinance enforces limits: intraday history only goes back ~60 days for 1h,
-# ~7 days for sub-hourly intervals.
+# Load sources.py from the same directory as this plugin file.
+# Uses importlib so we don't need __init__.py or sys.path manipulation.
 # ---------------------------------------------------------------------------
-VALID_PERIODS   = ["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"]
-VALID_INTERVALS = ["1m","2m","5m","15m","30m","60m","90m","1h",
-                   "1d","5d","1wk","1mo","3mo"]
 
-# Intraday intervals and the max lookback yfinance supports for each.
+def _load_sources():
+    src_path = pathlib.Path(__file__).parent / "sources.py"
+    spec     = importlib.util.spec_from_file_location("market_data_sources", src_path)
+    mod      = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+_sources      = _load_sources()
+_fetch_source = _sources.fetch
+SOURCE_LABELS = _sources.SOURCE_LABELS
+SOURCE_NOTES  = _sources.SOURCE_NOTES
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# yfinance-specific valid values — only used when source == "yahoo"
+VALID_PERIODS_YF   = ["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"]
+VALID_INTERVALS_YF = ["1m","2m","5m","15m","30m","60m","90m","1h",
+                      "1d","5d","1wk","1mo","3mo"]
+
 INTRADAY_PERIOD_LIMITS = {
-    "1m":  "7d",
-    "2m":  "60d",
-    "5m":  "60d",
-    "15m": "60d",
-    "30m": "60d",
-    "60m": "730d",
-    "90m": "60d",
-    "1h":  "730d",
+    "1m": "7d", "2m": "60d", "5m": "60d", "15m": "60d",
+    "30m": "60d", "60m": "730d", "90m": "60d", "1h": "730d",
 }
 
-DEFAULT_PERIOD   = "5y"
-DEFAULT_INTERVAL = "1d"
+DEFAULT_PERIOD   = "1mo"
+DEFAULT_INTERVAL = "5m"
 DEFAULT_SYMBOL   = "BTC-USD"
-
-# Session-state keys used by render_ui — must match what _handle_market_settings reads.
-_KEY_SYMBOL   = "md_symbol"
-_KEY_INTERVAL = "md_interval"
-_KEY_PERIOD   = "md_period"
+DEFAULT_SOURCE   = "yahoo"
 
 
 # ---------------------------------------------------------------------------
@@ -48,18 +55,29 @@ _KEY_PERIOD   = "md_period"
 def manifest():
     return {
         "name":     "market_data",
-        "version":  "1.2",
-        "provides": [
-            "market.price",
-            "market.settings",
-        ],
+        "version":  "1.3",
+        "provides": ["market.price", "market.settings"],
         "requires": [],
-        "ui_defaults": {          
-            "symbol":   "BTC-USD",
-            "interval": "5m",
-            "period":   "1mo",
+        "ui_defaults": {
+            "symbol":   DEFAULT_SYMBOL,
+            "interval": DEFAULT_INTERVAL,
+            "period":   DEFAULT_PERIOD,
+            "source":   DEFAULT_SOURCE,
         }
     }
+
+
+# ---------------------------------------------------------------------------
+# get_ui_context — passes source options to the template
+# ---------------------------------------------------------------------------
+
+def get_ui_context(context):
+    # Use already-loaded _sources module — no re-import needed
+    source_options = [
+        {"value": k, "label": v, "note": SOURCE_NOTES.get(k, "")}
+        for k, v in SOURCE_LABELS.items()
+    ]
+    return {"source_options": source_options}
 
 
 # ---------------------------------------------------------------------------
@@ -67,14 +85,6 @@ def manifest():
 # ---------------------------------------------------------------------------
 
 def _detect_asset_class(symbol: str) -> str:
-    """
-    Lightweight heuristic for display purposes.
-    yfinance symbol conventions:
-      BTC-USD, ETH-USDT, ...  → crypto
-      EURUSD=X, GBPJPY=X, ... → forex
-      GC=F, CL=F, ...         → futures
-      everything else         → equity
-    """
     if _re.search(r'-(USD|USDT|BTC|ETH|USDC)$', symbol, _re.I):
         return "crypto"
     if _re.search(r'=X$', symbol):
@@ -84,25 +94,27 @@ def _detect_asset_class(symbol: str) -> str:
     return "equity"
 
 
-def _validate_params(period, interval, start, end):
+def _validate_yfinance_params(period, interval, start, end):
     """
-    Sanity-check period/interval combo.
+    Validate period/interval only for Yahoo Finance.
+    Other sources have their own valid ranges handled in sources.py.
     Returns (ok: bool, message: str).
     """
-    if interval not in VALID_INTERVALS:
-        return False, f"Invalid interval '{interval}'. Choose from: {VALID_INTERVALS}"
-
+    if interval not in VALID_INTERVALS_YF:
+        return False, (f"Interval '{interval}' not supported by Yahoo Finance. "
+                       f"Choose from: {VALID_INTERVALS_YF}")
     if not (start or end):
-        if period not in VALID_PERIODS:
-            return False, f"Invalid period '{period}'. Choose from: {VALID_PERIODS}"
+        if period not in VALID_PERIODS_YF:
+            return False, (f"Period '{period}' not supported by Yahoo Finance. "
+                           f"Choose from: {VALID_PERIODS_YF}")
         if interval in INTRADAY_PERIOD_LIMITS:
             limit      = INTRADAY_PERIOD_LIMITS[interval]
             limit_days = _period_to_approx_days(limit)
             req_days   = _period_to_approx_days(period)
             if req_days > limit_days:
                 return False, (
-                    f"Interval '{interval}' only supports up to {limit} of history. "
-                    f"Reduce period or use a larger interval."
+                    f"Yahoo Finance interval '{interval}' only supports up to "
+                    f"{limit} of history. Reduce period or use a larger interval."
                 )
     else:
         if start and end:
@@ -113,66 +125,18 @@ def _validate_params(period, interval, start, end):
                     return False, "start date must be before end date."
             except Exception:
                 return False, "Invalid start/end date format. Use YYYY-MM-DD."
-
     return True, ""
 
 
 def _period_to_approx_days(period_str: str) -> int:
-    """Rough conversion so we can compare limits — not exact, just safe."""
     table = {
-        "1d": 1,    "5d": 5,    "7d": 7,
-        "1mo": 30,  "2mo": 60,  "3mo": 90,  "6mo": 180,
-        "60d": 60,  "730d": 730,
-        "1y": 365,  "2y": 730,  "5y": 1825, "10y": 3650,
+        "1d": 1, "5d": 5, "7d": 7,
+        "1mo": 30, "2mo": 60, "3mo": 90, "6mo": 180,
+        "60d": 60, "730d": 730,
+        "1y": 365, "2y": 730, "5y": 1825, "10y": 3650,
         "ytd": 365, "max": 99999,
     }
     return table.get(period_str, 99999)
-
-
-def _fetch_history(symbol, period=DEFAULT_PERIOD, interval=DEFAULT_INTERVAL,
-                   start=None, end=None, include_ohlcv=True):
-    """
-    Core yfinance fetch. Returns a list of record dicts, or None on empty result.
-
-    Priority:
-      1. start/end date range (ignores period when either is set)
-      2. period string
-
-    Output columns (include_ohlcv=True):  open, high, low, close, volume
-    Output columns (include_ohlcv=False): close only (v1.1 compat)
-    """
-    ticker = yf.Ticker(symbol)
-
-    kwargs = {"interval": interval, "auto_adjust": True}
-    if start or end:
-        if start: kwargs["start"] = start
-        if end:   kwargs["end"]   = end
-    else:
-        kwargs["period"] = period
-
-    hist = ticker.history(**kwargs)
-
-    if hist.empty:
-        return None
-
-    hist.columns = [c.lower() for c in hist.columns]
-
-    if include_ohlcv:
-        cols = [c for c in ["open","high","low","close","volume"] if c in hist.columns]
-    else:
-        cols = ["close"]
-
-    # Preserve the index (Date/Datetime) as a column so consumers get timestamps
-    hist = hist[cols].copy()
-    hist.index.name = "date"
-    records = hist.reset_index().to_dict(orient="records")
-
-    # Stringify the date so it's JSON-serialisable
-    for r in records:
-        if "date" in r:
-            r["date"] = str(r["date"])
-
-    return records
 
 
 # ---------------------------------------------------------------------------
@@ -180,77 +144,109 @@ def _fetch_history(symbol, period=DEFAULT_PERIOD, interval=DEFAULT_INTERVAL,
 # ---------------------------------------------------------------------------
 
 def _handle_market_price(payload: dict, context) -> dict:
-    """Fetch and return OHLCV history for a symbol."""
-    symbol        = payload.get("symbol",        DEFAULT_SYMBOL)
-    period        = payload.get("period",        DEFAULT_PERIOD)
-    interval      = payload.get("interval",      DEFAULT_INTERVAL)
-    start         = payload.get("start",         None)
-    end           = payload.get("end",           None)
-    include_ohlcv = payload.get("include_ohlcv", True)
+    symbol   = payload.get("symbol",        DEFAULT_SYMBOL)
+    period   = payload.get("period",        DEFAULT_PERIOD)
+    interval = payload.get("interval",      DEFAULT_INTERVAL)
+    start    = payload.get("start",         None)
+    end      = payload.get("end",           None)
+    source   = payload.get("source",        DEFAULT_SOURCE)
 
-    ok, msg = _validate_params(period, interval, start, end)
-    if not ok:
-        return {"status": "error", "message": msg}
+    # Validate params only for Yahoo Finance — other sources handle their own limits
+    if source == "yahoo":
+        ok, msg = _validate_yfinance_params(period, interval, start, end)
+        if not ok:
+            return {"status": "error", "message": msg}
+
+    cmc_key = context.get_api_key("coinmarketcap") if source == "coinmarketcap" else ""
 
     try:
-        records = _fetch_history(
-            symbol, period=period, interval=interval,
-            start=start, end=end, include_ohlcv=include_ohlcv,
+        records = _fetch_source(
+            source=source, symbol=symbol, period=period,
+            interval=interval, start=start, end=end, api_key=cmc_key,
         )
     except Exception as e:
-        return {"status": "error", "message": f"yfinance fetch failed: {e}"}
+        return {"status": "error", "message": f"{source} fetch failed: {e}"}
 
     if records is None:
-        return {"status": "error", "message": f"No data returned for symbol: {symbol}"}
+        return {
+            "status":  "error",
+            "message": f"No data returned for '{symbol}' from {SOURCE_LABELS.get(source, source)}."
+        }
 
-    context.publish(
-        "market.tick",
-        {"symbol": symbol, "price": records[-1]["close"]},
+    # Detect and strip the internal CMC free-tier flag
+    cmc_free_tier = (
+        source == "coinmarketcap"
+        and len(records) == 1
+        and records[0].get("_cmc_free_tier", False)
     )
+    for r in records:
+        r.pop("_cmc_free_tier", None)
 
-    # Actual date range from records (more reliable than requested start/end)
+    context.publish("market.tick", {"symbol": symbol, "price": records[-1]["close"]})
+
     _ts_key = next(
         (k for k in ["date","Date","datetime","timestamp","Datetime"]
          if k in records[0]),
         None,
     ) if records else None
 
-    return {
+    result = {
         "status": "success",
         "data":   records,
         "meta": {
-            "symbol":      symbol,
-            "period":      period if not (start or end) else None,
-            "interval":    interval,
-            "start":       start,
-            "end":         end,
-            "candles":     len(records),
-            "columns":     list(records[0].keys()) if records else [],
-            "source":      "yfinance",
-            "asset_class": _detect_asset_class(symbol),
-            "date_from":   str(records[0][_ts_key])  if (_ts_key and records) else None,
-            "date_to":     str(records[-1][_ts_key]) if (_ts_key and records) else None,
+            "symbol":       symbol,
+            "period":       period if not (start or end) else None,
+            "interval":     interval,
+            "start":        start,
+            "end":          end,
+            "candles":      len(records),
+            "columns":      list(records[0].keys()) if records else [],
+            "source":       source,
+            "source_label": SOURCE_LABELS.get(source, source),
+            "cmc_free_tier": cmc_free_tier,
+            "asset_class":  _detect_asset_class(symbol),
+            "date_from":    str(records[0][_ts_key])  if (_ts_key and records) else None,
+            "date_to":      str(records[-1][_ts_key]) if (_ts_key and records) else None,
         },
     }
 
+    # Attach warning for CMC free-tier — now correctly AFTER result is built
+    if cmc_free_tier:
+        result["warning"] = (
+            "CoinMarketCap free tier: only current price returned. "
+            "Historical OHLCV candles require a paid Hobbyist plan. "
+            "Strategy analysis will not work with 1 candle."
+        )
 
-def _handle_market_settings() -> dict:
+    return result
+
+
+def _handle_market_settings(payload: dict, context) -> dict:
     """
-    Return the current UI configuration so other plugins can sync to it.
-    Reads from session_state (set by render_ui widgets) with fallback to defaults.
+    Return the last-used market data settings so other plugins can sync.
+    Reads from the host's shared _market_settings dict, which is updated
+    every time the market_data fetch route is called.
+    Falls back to manifest defaults if no fetch has been made yet.
     """
+    # Read from host shared state (set by register_routes fetch handler)
+    try:
+        stored = getattr(context.host, "_market_settings", {})
+    except Exception:
+        stored = {}
+
     return {
         "status": "success",
         "data": {
-            "symbol":   st.session_state.get(_KEY_SYMBOL,   DEFAULT_SYMBOL),
-            "interval": st.session_state.get(_KEY_INTERVAL, DEFAULT_INTERVAL),
-            "period":   st.session_state.get(_KEY_PERIOD,   DEFAULT_PERIOD),
+            "symbol":   stored.get("symbol",   DEFAULT_SYMBOL),
+            "interval": stored.get("interval", DEFAULT_INTERVAL),
+            "period":   stored.get("period",   DEFAULT_PERIOD),
+            "source":   stored.get("source",   DEFAULT_SOURCE),
         },
     }
 
 
 # ---------------------------------------------------------------------------
-# Plugin interface — dispatch on capability
+# Plugin interface
 # ---------------------------------------------------------------------------
 
 def handle_request(request, context):
@@ -261,86 +257,76 @@ def handle_request(request, context):
         return _handle_market_price(payload, context)
 
     if capability == "market.settings":
-        return _handle_market_settings()
+        return _handle_market_settings(payload, context)
 
     return {
         "status":  "error",
-        "message": f"Unsupported capability: '{capability}'. "
-                   f"Provides: market.price, market.settings",
+        "message": (f"Unsupported capability: '{capability}'. "
+                    f"Provides: market.price, market.settings"),
     }
 
+
+# ---------------------------------------------------------------------------
+# Route registration
+# ---------------------------------------------------------------------------
+
 def register_routes(app, templates, get_host):
-    """
-    Register this plugin's HTTP routes directly onto the FastAPI app.
-
-    Called once at JagDash startup by main.py's lifespan function.
-    This means main.py never needs to know about market_data's form fields,
-    capability names, or template names.
-
-    The function signature (app, templates, get_host) is the standard
-    JagDash plugin route registration contract. Every plugin that registers
-    routes must accept these three arguments:
-        app         — the FastAPI application instance
-        templates   — the Jinja2Templates instance for rendering HTML
-        get_host    — function(request) -> PluginHost, for accessing plugins
-
-    Why import inside the function?
-    FastAPI, Form, HTMLResponse, etc. are only needed when routes are being
-    registered — not when the plugin is doing its data work in handle_request().
-    Keeping these imports local means the plugin's core logic has no web
-    framework dependency, which makes it easier to test in isolation.
-    """
     from fastapi import Form, Request
     from fastapi.responses import HTMLResponse
     from plugin_context import PluginContext
 
-    # Import save_plugin_state from main — but we can't import main directly
-    # (circular import). Instead, duplicate the minimal state-saving logic.
-    # This is the one unavoidable trade-off of the register_routes pattern.
     def _save_state(request, values: dict) -> None:
         request.session["ui_market_data"] = values
 
     @app.post("/plugin/market_data/fetch", response_class=HTMLResponse)
     async def market_data_fetch(
         request:  Request,
-        symbol:   str = Form("BTC-USD"),
-        period:   str = Form("1mo"),
-        interval: str = Form("5m"),
+        symbol:   str = Form(DEFAULT_SYMBOL),
+        period:   str = Form(DEFAULT_PERIOD),
+        interval: str = Form(DEFAULT_INTERVAL),
+        source:   str = Form(DEFAULT_SOURCE),
     ):
-        # Save submitted values to session so the form restores them on reload
         _save_state(request, {
-            "symbol": symbol, "period": period, "interval": interval
+            "symbol": symbol, "period": period,
+            "interval": interval, "source": source,
         })
+
+        # Write to host shared state so market.settings can return
+        # current values to other plugins (e.g. strategy_engine)
+        host = get_host(request)
+        host._market_settings = {
+            "symbol": symbol, "interval": interval,
+            "period": period, "source": source,
+        }
 
         host    = get_host(request)
         context = PluginContext(host)
 
         try:
             result = context.request("market.price", {
-                "symbol":        symbol,
-                "period":        period,
-                "interval":      interval,
-                "include_ohlcv": True,
+                "symbol": symbol, "period": period,
+                "interval": interval, "include_ohlcv": True,
+                "source": source,
             })
         except Exception as e:
-            return HTMLResponse(
-                content=f'<div class="error-msg">Request failed: {e}</div>'
-            )
+            return HTMLResponse(f'<div class="error-msg">Request failed: {e}</div>')
 
         if result["status"] != "success":
-            return HTMLResponse(
-                content=f'<div class="error-msg">{result["message"]}</div>'
-            )
+            return HTMLResponse(f'<div class="error-msg">{result["message"]}</div>')
 
         records = result["data"]
+        meta    = result.get("meta", {})
+
         return templates.TemplateResponse(
             request=request,
             name="partials/market_data_results.html",
             context={
-                "symbol":      symbol,
-                "records":     records,
-                "meta":        result.get("meta", {}),
+                "symbol":       symbol,
+                "source_label": meta.get("source_label", SOURCE_LABELS.get(source, source)),
+                "records":      records,
+                "meta":         meta,
                 "latest_close": records[-1]["close"] if records else None,
                 "candle_count": len(records),
+                "warning":      result.get("warning"),
             }
         )
