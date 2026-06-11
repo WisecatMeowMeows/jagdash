@@ -23,6 +23,7 @@
 <div class="results-content">
 
     <!-- Market data receipt -->
+    {# <!--
     <div class="market-receipt">
         <h4 class="receipt-title">Market Data</h4>
         <div class="results-summary">
@@ -54,6 +55,7 @@
     </div>
 
     <hr class="section-divider">
+    --> #}
 
     <!-- Combined signal hero -->
     <div class="signal-hero signal-hero--{{ combined.signal | lower }}">
@@ -63,6 +65,10 @@
             Score: {{ "%+.3f" | format(combined.score) }} &nbsp;|&nbsp;
             Confidence: {{ "%.0f" | format(combined.confidence) }}%
         </div>
+        <h2 class="signal-meta-note">
+            {{ market_meta.candle_count }} candles · 
+            last close ${{ "%.4f"|format(market_meta.price_last) }}
+        </h2>
     </div>
 
     <!-- Score bar: visual representation of score from -1 to +1 -->

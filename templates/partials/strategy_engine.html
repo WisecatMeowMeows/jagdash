@@ -59,6 +59,21 @@
                 <span class="settings-value">{{ market_settings.source }}</span>
             </div>
         </div>
+        {#
+        <div class="settings-display-row">
+            <div class="settings-display-item">
+                <span class="settings-label">Candles</span>
+                <span class="settings-value">{{ market_meta.get("candle_count", "?") }}</span>
+            </div>
+            {% if market_meta.get("price_last") %}
+            <div class="settings-display-item">
+                <span class="settings-label">Last Close</span>
+                <span class="settings-value">
+                    ${{ "%.4f" | format(market_meta.price_last) }}
+                </span>
+            </div>
+        </div>
+        #}
         <p class="section-note">
             Adjust these settings in the
             <strong>Market Data</strong> plugin, then return here to run analysis.
