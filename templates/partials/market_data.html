@@ -64,16 +64,52 @@
                 </select>
             </div>
 
+            <!-- Range mode toggle -->
             <div class="control-group">
+                <label>Lookback Mode</label>
+                <div class="toggle-row">
+                    <label class="toggle-option">
+                        <input type="radio" name="range_mode" value="period"
+                               {% if ui.range_mode != "dates" %}checked{% endif %}
+                               onchange="document.getElementById('period-controls').style.display='flex';
+                                         document.getElementById('date-controls').style.display='none';">
+                        Period
+                    </label>
+                    <label class="toggle-option">
+                        <input type="radio" name="range_mode" value="dates"
+                               {% if ui.range_mode == "dates" %}checked{% endif %}
+                               onchange="document.getElementById('period-controls').style.display='none';
+                                         document.getElementById('date-controls').style.display='flex';">
+                        Date Range
+                    </label>
+                </div>
+            </div>
+
+            <!-- Period controls -->
+            <div class="control-group" id="period-controls"
+                 style="display: {% if ui.range_mode == 'dates' %}none{% else %}flex{% endif %}; flex-direction: column; gap: var(--space-xs);">
                 <label for="md-period">Period</label>
                 <select id="md-period" name="period" class="select-input">
-                    {% set periods = ["1d","5d","1mo","3mo","6mo","1y","2y","5y","max"] %}
+                    {% set periods = ["6h","12h","1d","3d","5d","1mo","3mo","6mo","1y","2y","5y","max"] %}
                     {% for opt in periods %}
-                    <option value="{{ opt }}" {% if opt == ui.period %}selected{% endif %}>
-                        {{ opt }}
-                    </option>
+                    <option value="{{ opt }}" {% if opt == ui.period %}selected{% endif %}>{{ opt }}</option>
                     {% endfor %}
                 </select>
+            </div>
+
+            <!-- Date range controls -->
+            <div class="control-group" id="date-controls"
+                 style="display: {% if ui.range_mode == 'dates' %}flex{% else %}none{% endif %}; flex-direction: row; gap: var(--space-sm); flex-wrap: wrap;">
+                <div style="display:flex; flex-direction:column; gap: var(--space-xs);">
+                    <label for="md-start">Start Date</label>
+                    <input type="date" id="md-start" name="start"
+                           value="{{ ui.start }}" class="text-input">
+                </div>
+                <div style="display:flex; flex-direction:column; gap: var(--space-xs);">
+                    <label for="md-end">End Date</label>
+                    <input type="date" id="md-end" name="end"
+                           value="{{ ui.end }}" class="text-input">
+                </div>
             </div>
 
             <div class="control-group control-group--btn">

@@ -133,14 +133,20 @@
     });
 
     // 5. Create Candlestick series
+    // Fetch your CSS framework theme tokens dynamically
+    const style = getComputedStyle(document.documentElement);
+    const upColor = style.getPropertyValue('--color-success').trim() || '#26a69a';
+    const downColor = style.getPropertyValue('--color-error').trim() || '#ef5350';
+
     const series = chart.addSeries(LightweightCharts.CandlestickSeries, {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderUpColor: '#26a69a',
-        borderDownColor: '#ef5350',
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
+        upColor: upColor,           //'#26a69a',
+        downColor: downColor,       //'#ef5350',
+        borderUpColor: upColor,     //'#26a69a',
+        borderDownColor: downColor, //'#ef5350',
+        wickUpColor: upColor,       //'#26a69a',
+        wickDownColor: downColor,   //'#ef5350',
     });
+
 
     // 6. Submit validated arrays
     series.setData(chartData);
@@ -273,7 +279,7 @@ if (!container) return;
                 {% for row in records[-50:] | reverse %}
                 <tr>
                     {% if row.get("date") %}
-                    <td class="td-date">{{ row.date[:10] }}</td>
+                    <td class="td-date" style="font-family: monospace;">{{ row.date[:16] }}</td>
                     {% endif %}
                     {% if row.get("open") is not none and row.get("close") is not none %}
                     <td class="td-num">{{ "%.2f"|format(row.open) }}</td>

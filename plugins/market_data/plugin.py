@@ -63,6 +63,9 @@ def manifest():
             "interval": DEFAULT_INTERVAL,
             "period":   DEFAULT_PERIOD,
             "source":   DEFAULT_SOURCE,
+            "range_mode": "period",
+            "start":      "",
+            "end":        "",
         }
     }
 
@@ -285,10 +288,19 @@ def register_routes(app, templates, get_host):
         period:   str = Form(DEFAULT_PERIOD),
         interval: str = Form(DEFAULT_INTERVAL),
         source:   str = Form(DEFAULT_SOURCE),
+        range_mode: str = Form("period"),
+        start:    str = Form(""),
+        end:      str = Form(""),
     ):
         _save_state(request, {
-            "symbol": symbol, "period": period,
-            "interval": interval, "source": source,
+            "symbol": symbol, 
+            "period": period,
+            "interval": interval, 
+            "source": source,
+            "range_mode": range_mode,
+            "start": start, 
+            "end": end,
+
         })
 
         # Write to host shared state so market.settings can return
@@ -304,9 +316,13 @@ def register_routes(app, templates, get_host):
 
         try:
             result = context.request("market.price", {
-                "symbol": symbol, "period": period,
-                "interval": interval, "include_ohlcv": True,
-                "source": source,
+                "symbol":           symbol, 
+                "period":           period,
+                "interval":         interval, 
+                "include_ohlcv":    True,
+                "source":           source,
+                "start":            start if range_mode == "dates" else None,
+                "end":              end   if range_mode == "dates" else None,
             })
         except Exception as e:
             return HTMLResponse(f'<div class="error-msg">Request failed: {e}</div>')

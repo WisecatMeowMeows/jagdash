@@ -47,7 +47,10 @@ def _period_to_ms(period: str) -> tuple[int, int]:
     """
     end   = datetime.now(timezone.utc)
     delta_map = {
+        "6h":  timedelta(hours=6),
+        "12h": timedelta(hours=12),
         "1d": timedelta(days=1),
+        "3d":  timedelta(days=3),
         "5d": timedelta(days=5),
         "1mo": timedelta(days=30),
         "3mo": timedelta(days=90),
@@ -65,6 +68,7 @@ def _period_to_ms(period: str) -> tuple[int, int]:
 # SOURCE: Yahoo Finance (via yfinance)
 # ---------------------------------------------------------------------------
 
+
 def _fetch_yfinance(symbol, period, interval, start, end):
     """
     Original Yahoo Finance source via yfinance library.
@@ -75,6 +79,20 @@ def _fetch_yfinance(symbol, period, interval, start, end):
 
     ticker = yf.Ticker(symbol)
     kwargs = {"interval": interval, "auto_adjust": True}
+
+    # ------yfinance doesn't support sub-day periods — convert to start/end
+    if period in ("6h", "12h"):
+        from datetime import datetime, timezone, timedelta
+        hours = 6 if period == "6h" else 12
+        end_dt   = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(hours=hours)
+        kwargs["start"] = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+        kwargs["end"]   = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+    elif start or end:
+        ...
+    else:
+        kwargs["period"] = period
+    #-------------end conversion of 6h and 12h for Yfinance
 
     if start or end:
         if start: kwargs["start"] = start
@@ -301,7 +319,8 @@ SOURCE_LABELS = {
 }
 
 SOURCE_NOTES = {
-    "yahoo": "Stocks, ETFs, crypto (BTC-USD format), forex, futures.",
+    "yahoo": ("Stocks, ETFs, crypto (BTC-USD format), forex, futures."
+             "Intraday limit: 1m=7d, 5m=60d, 1h=730d."),
     "hyperliquid": (
         "Perpetual futures only. Use coin symbol without suffix: BTC, ETH, SOL. "
         "No API key required. Up to 5000 candles available."
