@@ -2,11 +2,23 @@
     partials/strategy_engine.html
     Multi-strategy signal dashboard.
 
-    Variables:
-        strategies      — list of {name, type, description, source, min_candles}
-        errors          — dict of {filename: error_message} from strategy discovery
-        market_settings — dict {symbol, interval, period, source} from market.settings
-        settings_error  — string or None if market.settings call failed
+    Variables (see plugin.py get_ui_context — same shape /run and
+    /reload use to rebuild the table and summary via hx-swap-oob):
+        strategies          — list of {name, type, description, source, min_candles, file}
+        errors              — dict {filename: error_message} from strategy discovery
+        market_settings     — dict {symbol, interval, period, source} from market.settings
+        settings_error      — string or None if market.settings call failed
+        selected_strategies — list of strategy names to check by default
+        weights             — dict {strategy_name: float}
+        signals             — dict {strategy_name: signal_string}, {} initially
+        signal_scores       — dict {signal_string: float}
+        trade_recs          — {} or {price,atr,atr_pct,leverage,BUY:{...},SELL:{...}}
+        strategy_errors     — dict {strategy_name: error_string}
+        combined            — dict {signal,score,confidence} or None
+        market_meta         — dict, possibly {}
+        buy_threshold       — float
+        sell_threshold      — float
+        error               — string or None
 -->
 
 <div class="plugin-panel" id="panel-strategy">
@@ -16,21 +28,13 @@
         <p class="plugin-subtitle">Multi-strategy combined signal analysis</p>
     </div>
 
-    <!-- Strategy discovery errors -->
-    {% if errors %}
-    <div class="discovery-errors">
-        {% for filename, msg in errors.items() %}
-        <div class="{% if msg.startswith('Note:') %}info-msg{% else %}error-msg{% endif %}">
-            <strong>{{ filename }}</strong>: {{ msg }}
-        </div>
-        {% endfor %}
+    <!-- Strategy discovery errors: OOB-refreshed by /reload -->
+    <div id="strategy-discovery-errors">
+        {% include "partials/strategy_discovery_errors.html" %}
     </div>
-    {% endif %}
 
     <!-- ================================================================
          READ-ONLY SETTINGS CARD
-         Shows what data the analysis will run on.
-         To change these, go to the Market Data plugin.
          ================================================================ -->
     <div class="config-card config-card--wide settings-display-card">
         <h4 class="config-card-title">Data Settings</h4>
@@ -59,21 +63,6 @@
                 <span class="settings-value">{{ market_settings.source }}</span>
             </div>
         </div>
-        {#
-        <div class="settings-display-row">
-            <div class="settings-display-item">
-                <span class="settings-label">Candles</span>
-                <span class="settings-value">{{ market_meta.get("candle_count", "?") }}</span>
-            </div>
-            {% if market_meta.get("price_last") %}
-            <div class="settings-display-item">
-                <span class="settings-label">Last Close</span>
-                <span class="settings-value">
-                    ${{ "%.4f" | format(market_meta.price_last) }}
-                </span>
-            </div>
-        </div>
-        #}
         <p class="section-note">
             Adjust these settings in the
             <strong>Market Data</strong> plugin, then return here to run analysis.
@@ -81,21 +70,30 @@
         {% endif %}
     </div>
 
+    <!-- Combined-signal summary: OOB-refreshed by /run and /reload.
+         Placeholder shown until first run. -->
+    <div id="strategy-summary">
+        {% include "partials/strategy_summary.html" %}
+    </div>
+
     <!-- ================================================================
-         ANALYSIS FORM
-         Only contains strategy selection, weights, and the run button.
-         No symbol/interval/period controls — those live in market_data.
+         ANALYSIS FORM + PERMANENT STRATEGY TABLE
+
+         hx-swap="none": nothing is swapped into a target element.
+         The form's only job is to POST; both the table tbody
+         (#strategy-table-container) and the summary (#strategy-summary)
+         are updated via hx-swap-oob fragments inside the response,
+         matched by id.
          ================================================================ -->
     <form id="strategy-form"
           hx-post="/plugin/strategy_engine/run"
-          hx-target="#strategy-results"
-          hx-swap="innerHTML"
+          hx-swap="none"
           hx-indicator="#strategy-loading">
+
         <div class="form-actions">
             <button type="submit" class="btn btn--primary btn--large">
                 Run Analysis
             </button>
-            <!-- Reload strategies without restarting the server -->
             <button type="button"
                     class="btn btn--secondary"
                     hx-post="/plugin/strategy_engine/reload"
@@ -111,71 +109,57 @@
             Fetching data and running strategies…
         </div>
 
-        <div id="strategy-results" class="results-area">
-            <p class="placeholder-msg">Results will appear here after running analysis.</p>
-        </div>
-
         <div class="config-card config-card--wide">
             <h4 class="config-card-title">Strategies & Weights</h4>
             <p class="section-note">
                 Enable strategies to include in the combined signal.
                 Weight controls how much each strategy influences the result (0.1–3.0).
+                Entry / Target / Stop / Leverage are ATR-based heuristics for that
+                row's signal direction — not financial advice.
+                Tune via the constants at the top of
+                <code>strategy_engine/plugin.py</code>.
             </p>
 
-            <div class="strategy-list">
-                {% for strat in strategies %}
-                <div class="strategy-row">
-
-                    <label class="strategy-check-label">
-                        <input type="checkbox"
-                               name="selected_strategies"
-                               value="{{ strat.name }}"
-                               checked
-                               class="strategy-checkbox">
-                        <span class="strategy-name">
-                            {{ strat.name }}
-                            {% if strat.source != "built-in" %}
-                            <span class="source-badge">
-                                {% if strat.source == "external-python" %}📂{% else %}📄{% endif %}
-                            </span>
-                            {% endif %}
-                        </span>
-                    </label>
-
-                    <details class="strategy-info">
-                        <summary class="strategy-info-btn">ℹ</summary>
-                        <div class="strategy-info-panel">
-                            <strong>{{ strat.name }}</strong>
-                            {% if strat.type %}<br><em>{{ strat.type }}</em>{% endif %}
-                            {% if strat.description %}<p>{{ strat.description }}</p>{% endif %}
-                            {% if strat.min_candles %}
-                            <p class="info-meta">Min candles: {{ strat.min_candles }}</p>
-                            {% endif %}
-                            {% if strat.file %}
-                            <p class="info-meta">File: {{ strat.file }}</p>
-                            {% endif %}
-                        </div>
-                    </details>
-
-                    <div class="strategy-weight">
-                        <label class="weight-label">Weight</label>
-                        <input type="range"
-                               name="weight_{{ strat.name }}"
-                               min="0.1" max="3.0" step="0.1" value="1.0"
-                               class="weight-slider"
-                               oninput="this.nextElementSibling.textContent = parseFloat(this.value).toFixed(1)">
-                        <span class="weight-display">1.0</span>
-                    </div>
-
-                </div>
-                {% endfor %}
+            <div class="table-wrapper" id="strategy-table-container">
+                <table class="data-table strategy-table">
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th class="td-num">Weight</th>
+                            <th>Signal</th>
+                            <th class="td-num">Vote</th>
+                            <th class="td-num">Weighted</th>
+                            <th class="td-num strategy-rec-col"
+                                title="Suggested entry (current price)">Entry</th>
+                            <th class="td-num strategy-rec-col"
+                                title="Take-profit target (2× ATR by default)">Target</th>
+                            <th class="td-num strategy-rec-col"
+                                title="Stop-loss (1× ATR by default)">Stop</th>
+                            <th class="td-num strategy-rec-col"
+                                title="Suggested leverage from volatility (ATR-based)">Lev.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% include "partials/strategy_table_rows.html" %}
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        
-
     </form>
 
- 
-
 </div>
+
+<script>
+    // +/- stepper for weight cells.
+    // Clamped 0.1–3.0, rounded to 1 decimal to avoid float drift.
+    function adjustWeight(button, delta) {
+        var wrapper = button.closest(".weight-stepper");
+        var input   = wrapper.querySelector(".weight-input");
+        var val     = parseFloat(input.value);
+        if (isNaN(val)) val = 1.0;
+        val = Math.round((val + delta) * 10) / 10;
+        val = Math.max(0.1, Math.min(3.0, val));
+        input.value = val.toFixed(1);
+    }
+</script>

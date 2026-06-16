@@ -1,0 +1,143 @@
+<!--
+    partials/strategy_table_rows.html
+    Renders the FULL strategy table (thead + tbody).
+
+    Used in two contexts:
+      1. Included by strategy_engine.html on initial page load
+         (inside <div id="strategy-table-container">)
+      2. Returned as the inner content of the OOB
+         <div id="strategy-table-container" hx-swap-oob="true"> fragment
+         by POST /run and POST /reload
+
+    By rendering the full table (not just tbody rows), we avoid the
+    browser-parsing problem where a bare <tbody> is invalid HTML outside
+    a <table> and gets mangled by HTMX's makeFragment().
+
+    Variables:
+        strategies          — list of {name, type, description, source,
+                               min_candles, file}
+        selected_strategies — list of strategy names whose checkbox is checked
+        weights             — dict {strategy_name: float}
+        signals             — dict {strategy_name: signal_string};
+                               empty {} when nothing has been run yet
+        signal_scores       — dict {signal_string: float}
+        trade_recs          — {} if unavailable, else:
+                               {price, atr, atr_pct, leverage,
+                                BUY:{entry,target,stop},
+                                SELL:{entry,target,stop}}
+        strategy_errors     — dict {strategy_name: error_string}
+-->
+<table class="data-table strategy-table">
+    <thead>
+        <tr>
+            <th>Strategy</th>
+            <th class="td-num">Weight</th>
+            <th>Signal</th>
+            <th class="td-num">Vote</th>
+            <th class="td-num">Weighted</th>
+            <th class="td-num strategy-rec-col"
+                title="Suggested entry (current price)">Entry</th>
+            <th class="td-num strategy-rec-col"
+                title="Take-profit target (2× ATR by default)">Target</th>
+            <th class="td-num strategy-rec-col"
+                title="Stop-loss (1× ATR by default)">Stop</th>
+            <th class="td-num strategy-rec-col"
+                title="Suggested leverage from volatility (ATR-based)">Lev.</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for strat in strategies %}
+    {% set sig = signals.get(strat.name) %}
+    {% set w   = weights.get(strat.name, 1.0) %}
+    {% set rec = trade_recs.get(sig) if sig and trade_recs else None %}
+    <tr>
+        <td class="strategy-name-cell">
+            <label class="strategy-check-label">
+                <input type="checkbox"
+                       name="selected_strategies"
+                       value="{{ strat.name }}"
+                       {% if strat.name in selected_strategies %}checked{% endif %}
+                       class="strategy-checkbox">
+                <span class="strategy-name">
+                    {{ strat.name }}
+                    {% if strat.source != "built-in" %}
+                    <span class="source-badge">
+                        {% if strat.source == "external-python" %}📂{% else %}📄{% endif %}
+                    </span>
+                    {% endif %}
+                    {% if strategy_errors.get(strat.name) %}
+                    <span class="warning-badge" title="{{ strategy_errors[strat.name] }}">⚠️</span>
+                    {% endif %}
+                </span>
+            </label>
+            {% if strat.description %}
+            <details class="strategy-info">
+                <summary class="strategy-info-btn">ℹ details</summary>
+                <div class="strategy-info-panel">
+                    {% if strat.type %}<em>{{ strat.type }}</em><br>{% endif %}
+                    <p>{{ strat.description }}</p>
+                    {% if strat.min_candles %}
+                    <p class="info-meta">Min candles: {{ strat.min_candles }}</p>
+                    {% endif %}
+                    {% if strat.file %}
+                    <p class="info-meta">File: {{ strat.file }}</p>
+                    {% endif %}
+                </div>
+            </details>
+            {% endif %}
+        </td>
+
+        <!-- Weight: +/- stepper. The number input submits; buttons nudge it. -->
+        <td class="td-num">
+            <div class="weight-stepper">
+                <button type="button" class="stepper-btn"
+                        onclick="adjustWeight(this, -0.1)" aria-label="Decrease weight">−</button>
+                <input type="number"
+                       name="weight_{{ strat.name }}"
+                       value="{{ '%.1f' | format(w) }}"
+                       step="0.1" min="0.1" max="3.0"
+                       class="weight-input">
+                <button type="button" class="stepper-btn"
+                        onclick="adjustWeight(this, 0.1)" aria-label="Increase weight">+</button>
+            </div>
+        </td>
+
+        <td>
+            {% if sig %}
+            <span class="signal-pill signal-pill--{{ sig | lower }}">{{ sig }}</span>
+            {% else %}
+            <span class="td-placeholder">—</span>
+            {% endif %}
+        </td>
+
+        <td class="td-num">
+            {% if sig %}{{ "%+.1f" | format(signal_scores.get(sig, 0.0)) }}
+            {% else %}<span class="td-placeholder">—</span>{% endif %}
+        </td>
+
+        <td class="td-num">
+            {% if sig %}{{ "%+.2f" | format(signal_scores.get(sig, 0.0) * w) }}
+            {% else %}<span class="td-placeholder">—</span>{% endif %}
+        </td>
+
+        <!-- Entry / Target / Stop / Leverage: only for BUY/SELL rows -->
+        <td class="td-num strategy-rec-col">
+            {% if rec %}${{ "%.4f" | format(rec.entry) }}
+            {% else %}<span class="td-placeholder">—</span>{% endif %}
+        </td>
+        <td class="td-num strategy-rec-col">
+            {% if rec %}${{ "%.4f" | format(rec.target) }}
+            {% else %}<span class="td-placeholder">—</span>{% endif %}
+        </td>
+        <td class="td-num strategy-rec-col">
+            {% if rec %}${{ "%.4f" | format(rec.stop) }}
+            {% else %}<span class="td-placeholder">—</span>{% endif %}
+        </td>
+        <td class="td-num strategy-rec-col">
+            {% if rec %}{{ "%.1f" | format(trade_recs.leverage) }}x
+            {% else %}<span class="td-placeholder">—</span>{% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>

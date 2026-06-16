@@ -1,0 +1,87 @@
+<!--
+    partials/strategy_summary.html
+    The "what does it all add up to" panel above the strategy table.
+    Rendered into #strategy-summary on initial load, and re-rendered
+    as an hx-swap-oob fragment by /run and /reload.
+
+    Three states:
+      error    set  -> show the error message
+      combined set  -> show hero, score bar, warnings, thresholds
+      neither       -> placeholder ("nothing run yet")
+
+    Variables:
+        error           — string or None
+        combined        — dict {signal, score, confidence} or None
+        market_meta     — dict with candle_count, price_last, etc. (may be {})
+        strategy_errors — dict {strategy_name: error_string}
+        buy_threshold   — float
+        sell_threshold  — float
+-->
+
+{% if error %}
+<div class="error-msg">{{ error }}</div>
+
+{% elif combined %}
+<div class="results-content">
+
+    <!-- Combined signal hero -->
+    <div class="signal-hero signal-hero--{{ combined.signal | lower }}">
+        <div class="signal-hero-label">Combined Signal</div>
+        <div class="signal-hero-value">{{ combined.signal }}</div>
+        <div class="signal-hero-meta">
+            Score: {{ "%+.3f" | format(combined.score) }} &nbsp;|&nbsp;
+            Confidence: {{ "%.0f" | format(combined.confidence) }}%
+        </div>
+        {% if market_meta.get("candle_count") %}
+        <p class="signal-meta-note">
+            {{ market_meta.get("candle_count") }} candles ·
+            last close ${{ "%.4f" | format(market_meta.get("price_last", 0)) }}
+        </p>
+        {% endif %}
+    </div>
+
+    <!-- Score bar: visual representation of score from -1 to +1 -->
+    <div class="score-bar-wrapper">
+        <!--
+            The bar fills from center (0) toward left (SELL) or right (BUY).
+            pct maps score from [-1, +1] to [0, 100] for CSS width.
+            score of 0 = 50%, score of +1 = 100%, score of -1 = 0%.
+        -->
+        {% set pct = [(combined.score + 1.0) / 2.0 * 100, 0] | max %}
+        {% set pct = [pct, 100] | min %}
+        <div class="score-bar-track">
+            <div class="score-bar-fill score-bar-fill--{{ combined.signal | lower }}"
+                 style="width: {{ pct | int }}%"></div>
+            <div class="score-bar-center"></div>
+        </div>
+        <div class="score-bar-labels">
+            <span>◀ SELL</span>
+            <span>HOLD</span>
+            <span>BUY ▶</span>
+        </div>
+    </div>
+
+    <!-- Strategy warnings if any -->
+    {% if strategy_errors %}
+    <details class="warning-details">
+        <summary>⚠️ {{ strategy_errors | length }} strategy warning(s)</summary>
+        <div class="warning-list">
+            {% for name, msg in strategy_errors.items() %}
+            <div class="warning-item">
+                <strong>{{ name }}</strong>: {{ msg }} (defaulted to HOLD)
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+    <p class="table-note">
+        Thresholds: BUY &gt; {{ "%+.2f" | format(buy_threshold) }} &nbsp;|&nbsp;
+        SELL &lt; {{ "%+.2f" | format(sell_threshold) }}
+    </p>
+
+</div>
+
+{% else %}
+<p class="placeholder-msg">Run analysis to see the combined signal.</p>
+{% endif %}

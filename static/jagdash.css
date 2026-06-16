@@ -1986,6 +1986,107 @@ code {
 
 
 /* ============================================================
+   STRATEGY ENGINE — PERMANENT TABLE ADDITIONS
+   ============================================================ */
+
+/*
+   Weight stepper: − [number] +
+   The number input is functional (submits) but visually slim.
+   Buttons are sized to tap on mobile.
+*/
+.weight-stepper {
+    display:         flex;
+    align-items:     center;
+    gap:             var(--space-xs);
+    justify-content: flex-end;
+}
+
+.stepper-btn {
+    width:            26px;
+    height:           26px;
+    border:           var(--border-width) solid var(--color-border);
+    border-radius:    var(--border-radius-sm);
+    background:       var(--color-surface-raised);
+    color:            var(--color-fg);
+    font-size:        var(--font-size-lg);
+    line-height:      1;
+    cursor:           pointer;
+    flex-shrink:      0;
+    padding:          0;
+    text-align:       center;
+    transition:       background-color var(--transition-fast),
+                      border-color     var(--transition-fast);
+}
+
+.stepper-btn:hover {
+    background:   var(--color-border);
+    border-color: var(--color-accent);
+    color:        var(--color-accent);
+}
+
+/* The number input between the steppers — hide browser spin buttons,
+   narrow so it doesn't dominate the column, but still editable. */
+.weight-input {
+    width:            42px;
+    text-align:       center;
+    font-family:      var(--font-family-mono);
+    font-size:        var(--font-size-sm);
+    padding:          var(--space-xs) 2px;
+    background:       var(--color-bg);
+    border:           var(--border-width) solid var(--color-border);
+    border-radius:    var(--border-radius-sm);
+    color:            var(--color-accent);
+    -moz-appearance:  textfield;       /* Firefox */
+}
+.weight-input::-webkit-outer-spin-button,
+.weight-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin:             0;
+}
+.weight-input:focus {
+    outline:      none;
+    border-color: var(--color-accent);
+}
+
+/* Strategy name cell: stacks checkbox-label above the info details */
+.strategy-name-cell {
+    min-width: 160px;
+}
+
+/* Trade-recommendation columns: de-emphasised until run, then lit up
+   by the presence of real numbers. Keep them narrow on small screens. */
+.strategy-rec-col {
+    color:         var(--color-fg-muted);
+    font-family:   var(--font-family-mono);
+    font-size:     var(--font-size-sm);
+    white-space:   nowrap;
+    min-width:     80px;
+}
+
+/* Placeholder dash — "nothing run yet" for result columns */
+.td-placeholder {
+    color:       var(--color-fg-muted);
+    opacity:     0.4;
+    font-family: var(--font-family-mono);
+}
+
+/* Wider strategy table needs horizontal scroll on narrow viewports */
+.strategy-table {
+    min-width: 760px;
+}
+
+@media (max-width: 900px) {
+    /* Hide the trade-rec columns on small screens to keep the table
+       readable. They're a nice-to-have, not critical for mobile. */
+    .strategy-rec-col {
+        display: none;
+    }
+    .strategy-table {
+        min-width: 480px;
+    }
+}
+
+/* ============================================================
    STRATEGY ENGINE — READ-ONLY SETTINGS DISPLAY
    ============================================================ */
 

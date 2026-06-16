@@ -39,6 +39,29 @@ DEFAULT_WEIGHT = 1.0
 
 
 # ============================================================
+# TRADE RECOMMENDATION TUNING
+# ============================================================
+# Drives the Entry / Target / Stop / Leverage columns in the strategy
+# table. All four numbers come from ONE measurement — ATR(14), the
+# average bar-to-bar price movement — so they're consistent with each
+# other and with the built-in "ATR Trend Filter" strategy.
+#
+# These are heuristics, not financial advice. Tune freely:
+#   RISK_PER_TRADE_PCT  — first knob to turn. Lower = more conservative
+#                         leverage suggestions across the board.
+#   TARGET_ATR_MULT /
+#   STOP_ATR_MULT       — together set the reward:risk ratio
+#                         (default 2.0 / 1.0 = 2:1).
+#   MIN/MAX_LEVERAGE    — hard floor/ceiling regardless of volatility.
+ATR_PERIOD         = 14
+TARGET_ATR_MULT    = 2.0
+STOP_ATR_MULT      = 1.0
+RISK_PER_TRADE_PCT = 10.0
+MIN_LEVERAGE       = 1.0
+MAX_LEVERAGE       = 10.0
+
+
+# ============================================================
 # MANIFEST
 # ============================================================
 
@@ -61,11 +84,11 @@ def manifest() -> dict:
 # GET UI CONTEXT
 # ============================================================
 
-def get_ui_context(context):
-    """Return data needed by partials/strategy_engine.html.
+def _build_strategy_list() -> list[dict]:
+    """Full registry info for every currently-loaded strategy.
 
-    Settings (symbol, interval, period, source) are read from market.settings
-    and displayed read-only. The user adjusts them in market_data plugin.
+    Used both for the initial table render and to rebuild the table
+    after /run or /reload, so the row set always matches STRATEGIES.
     """
     strategy_list = []
     for name in STRATEGIES:
@@ -78,6 +101,22 @@ def get_ui_context(context):
             "min_candles": meta.get("min_candles", 0),
             "file":        meta.get("file", ""),
         })
+    return strategy_list
+
+
+def get_ui_context(context):
+    """Return data needed by partials/strategy_engine.html.
+
+    Settings (symbol, interval, period, source) are read from market.settings
+    and displayed read-only. The user adjusts them in market_data plugin.
+
+    The strategy table is permanent (always rendered), so this also
+    supplies the "nothing has run yet" defaults for every column —
+    these are the same keys that /run and /reload fill in with real
+    results via partials/strategy_table_rows.html and
+    partials/strategy_summary.html.
+    """
+    strategy_list = _build_strategy_list()
 
     # Fetch current market settings for display (read-only in this plugin)
     market_settings = {
@@ -97,10 +136,22 @@ def get_ui_context(context):
         settings_error = str(e)
 
     return {
-        "strategies":       strategy_list,
-        "errors":           _discovery_errors,
-        "market_settings":  market_settings,
-        "settings_error":   settings_error,
+        "strategies":          strategy_list,
+        "errors":              _discovery_errors,
+        "market_settings":     market_settings,
+        "settings_error":      settings_error,
+        # --- permanent table defaults (nothing run yet) ---
+        "selected_strategies": list(STRATEGIES.keys()),
+        "weights":             {name: DEFAULT_WEIGHT for name in STRATEGIES},
+        "signals":             {},
+        "signal_scores":       SIGNAL_SCORES,
+        "trade_recs":          {},
+        "strategy_errors":     {},
+        "combined":            None,
+        "market_meta":         {},
+        "buy_threshold":       BUY_THRESHOLD,
+        "sell_threshold":      SELL_THRESHOLD,
+        "error":               None,
     }
 
 
@@ -122,6 +173,67 @@ def calculate_macd(series: pd.Series) -> tuple[pd.Series, pd.Series]:
     macd   = ema12 - ema26
     signal = macd.ewm(span=9, adjust=False).mean()
     return macd, signal
+
+
+def calculate_atr(series: pd.Series, period: int = ATR_PERIOD) -> pd.Series:
+    """
+    Close-to-close ATR approximation — no high/low/open needed.
+    Same approach as strategies/atr_trend_filter.py, so the volatility
+    figure here matches what that strategy is reacting to.
+    """
+    return series.diff().abs().rolling(period).mean()
+
+
+# ============================================================
+# TRADE RECOMMENDATIONS (Entry / Target / Stop / Leverage)
+# ============================================================
+
+def compute_trade_recommendations(df: pd.DataFrame) -> dict:
+    """
+    One ATR-based volatility measurement -> entry/target/stop for a BUY
+    and for a SELL, plus a single leverage suggestion for both.
+
+    Signal-processing framing: ATR is the "noise floor" of the price —
+    how much it typically wiggles per bar. Leverage here is just
+    (risk budget) / (noise floor): if price moves ~1% per bar and
+    you're willing to risk 10% of margin on a stop-out, 10x leverage
+    means one "normal" bar eats your whole risk budget. Bigger noise
+    floor -> automatically lower leverage, no separate volatility
+    check needed.
+
+    Returns {} if there isn't enough history for ATR (e.g. CMC
+    free-tier single-candle data) — callers should treat that as
+    "no recommendation available", not an error.
+    """
+    close   = df["close"]
+    atr     = calculate_atr(close)
+
+    price   = close.iloc[-1]
+    atr_now = atr.iloc[-1]
+
+    if pd.isna(price) or pd.isna(atr_now) or price <= 0 or atr_now <= 0:
+        return {}
+
+    atr_pct  = atr_now / price
+    leverage = (RISK_PER_TRADE_PCT / 100.0) / atr_pct
+    leverage = max(MIN_LEVERAGE, min(MAX_LEVERAGE, leverage))
+
+    return {
+        "price":    price,
+        "atr":      atr_now,
+        "atr_pct":  atr_pct,
+        "leverage": leverage,
+        "BUY": {
+            "entry":  price,
+            "target": price + TARGET_ATR_MULT * atr_now,
+            "stop":   price - STOP_ATR_MULT  * atr_now,
+        },
+        "SELL": {
+            "entry":  price,
+            "target": price - TARGET_ATR_MULT * atr_now,
+            "stop":   price + STOP_ATR_MULT  * atr_now,
+        },
+    }
 
 
 # ============================================================
@@ -734,6 +846,7 @@ def handle_request(request: dict, context) -> dict:
     )
 
     market_meta = _extract_market_meta(market_response, df, symbol)
+    trade_recs  = compute_trade_recommendations(df)
 
     return {
         "status": "success",
@@ -746,6 +859,7 @@ def handle_request(request: dict, context) -> dict:
             "weights":         weights,
             "combined":        combined,
             "strategy_errors": strategy_errors,
+            "trade_recs":      trade_recs,
         },
     }
 
@@ -788,12 +902,41 @@ def register_routes(app, templates, get_host):
     from plugin_context import PluginContext
     from typing import List, Optional
 
-    def _save_state(request, values: dict) -> None:
-        request.session["ui_strategy_engine"] = values
+    def _render(template_name: str, **ctx) -> str:
+        return templates.env.get_template(template_name).render(**ctx)
+
+    def _default_table_state() -> dict:
+        """'Nothing has run yet' / 'strategies just reloaded' table state."""
+        return {
+            "strategies":          _build_strategy_list(),
+            "selected_strategies": list(STRATEGIES.keys()),
+            "weights":             {name: DEFAULT_WEIGHT for name in STRATEGIES},
+            "signals":             {},
+            "signal_scores":       SIGNAL_SCORES,
+            "trade_recs":          {},
+            "strategy_errors":     {},
+        }
+
+    def _default_summary_state(error: str | None = None) -> dict:
+        return {
+            "error":           error,
+            "combined":        None,
+            "market_meta":     {},
+            "strategy_errors": {},
+            "buy_threshold":   BUY_THRESHOLD,
+            "sell_threshold":  SELL_THRESHOLD,
+        }
 
     @app.post("/plugin/strategy_engine/reload", response_class=HTMLResponse)
     async def strategy_engine_reload(request: Request):
-        """Reload external strategy files without restarting the server."""
+        """
+        Reload external strategy files without restarting the server.
+
+        Also refreshes the permanent table: the strategy set may have
+        changed (a file was added/removed/edited), so any previously
+        displayed signals/weights/results no longer correspond to a
+        known-good run and are reset to placeholders.
+        """
         _reload_strategies()
         count = len(STRATEGIES)
         ext   = len(_external_names)
@@ -801,7 +944,17 @@ def register_routes(app, templates, get_host):
         msg   = f"Reloaded. {count} strategies ({ext} external)"
         if errs:
             msg += f", {errs} issue(s) — check strategy list."
-        return HTMLResponse(f'<div class="success-msg">{msg}</div>')
+
+        rows_html      = _render("partials/strategy_table_rows.html", **_default_table_state())
+        summary_html   = _render("partials/strategy_summary.html", **_default_summary_state())
+        discovery_html = _render("partials/strategy_discovery_errors.html", errors=_discovery_errors)
+
+        return HTMLResponse(
+            f'<div class="success-msg">{msg}</div>'
+            f'<div id="strategy-table-container" class="table-wrapper" hx-swap-oob="true">{rows_html}</div>'
+            f'<div id="strategy-summary" hx-swap-oob="true">{summary_html}</div>'
+            f'<div id="strategy-discovery-errors" hx-swap-oob="true">{discovery_html}</div>'
+        )
 
     @app.post("/plugin/strategy_engine/run", response_class=HTMLResponse)
     async def strategy_engine_run(
@@ -812,9 +965,18 @@ def register_routes(app, templates, get_host):
         Run strategy analysis using current market_data settings.
         Symbol, interval, period, and source are read from market.settings
         rather than from form fields — the user sets them in market_data.
-        Weight sliders are the only input from this form.
+
+        The strategy table is permanent: every call re-renders the full
+        tbody (every known strategy, checkboxes/weights preserved from
+        the submitted form) plus the combined-signal summary, both
+        delivered as hx-swap-oob fragments. The form itself uses
+        hx-swap="none" — nothing is swapped into the form's own target,
+        only the two OOB elements.
         """
-        # Read weight_* fields from raw form (dynamic, one per strategy)
+        # weight_* inputs exist for every row regardless of checkbox
+        # state, so this dict covers selected AND unselected strategies —
+        # that's what lets the table preserve weights for rows the user
+        # didn't run this time.
         form_data = await request.form()
         weights   = {}
         for key, value in form_data.multi_items():
@@ -823,75 +985,84 @@ def register_routes(app, templates, get_host):
                 try:
                     weights[name] = float(value)
                 except (ValueError, TypeError):
-                    weights[name] = 1.0
+                    weights[name] = DEFAULT_WEIGHT
+
+        selected_strategies = selected_strategies or []
+        for name in STRATEGIES:
+            weights.setdefault(name, DEFAULT_WEIGHT)
+
+        signals         = {}
+        trade_recs      = {}
+        strategy_errors = {}
+        combined        = None
+        market_meta     = {}
+        summary_error   = None
 
         if not selected_strategies:
-            return HTMLResponse(
-                '<div class="error-msg">No strategies selected.</div>'
-            )
+            summary_error = "No strategies selected."
+        else:
+            host    = get_host(request)
+            context = PluginContext(host)
 
-        for name in selected_strategies:
-            weights.setdefault(name, 1.0)
-
-        host    = get_host(request)
-        context = PluginContext(host)
-
-        # Read current market settings — single source of truth
-        try:
-            settings_result = context.request("market.settings", {})
-            if settings_result.get("status") == "success":
-                ms = settings_result["data"]
-            else:
+            # Read current market settings — single source of truth
+            try:
+                settings_result = context.request("market.settings", {})
+                ms = (settings_result["data"]
+                      if settings_result.get("status") == "success" else {})
+            except Exception:
                 ms = {}
-        except Exception:
-            ms = {}
 
-        symbol   = ms.get("symbol",   "BTC-USD")
-        interval = ms.get("interval", "5m")
-        period   = ms.get("period",   "1mo")
-        source   = ms.get("source",   "yahoo")
+            symbol   = ms.get("symbol",   "BTC-USD")
+            interval = ms.get("interval", "5m")
+            period   = ms.get("period",   "1mo")
+            source   = ms.get("source",   "yahoo")
 
-        try:
-            result = context.request(
-                "market.strategy.signal",
-                {
-                    "symbol":     symbol,
-                    "interval":   interval,
-                    "period":     period,
-                    "source":     source,
-                    "strategies": selected_strategies,
-                    "weights":    weights,
-                }
-            )
-        except Exception as e:
-            return templates.TemplateResponse(
-                request=request,
-                name="partials/strategy_engine_results.html",
-                context={"error": str(e)}
-            )
+            try:
+                result = context.request(
+                    "market.strategy.signal",
+                    {
+                        "symbol":     symbol,
+                        "interval":   interval,
+                        "period":     period,
+                        "source":     source,
+                        "strategies": selected_strategies,
+                        "weights":    weights,
+                    }
+                )
+            except Exception as e:
+                summary_error = str(e)
+            else:
+                if result["status"] != "success":
+                    summary_error = result.get("message", "Unknown error")
+                else:
+                    data            = result["data"]
+                    signals         = data.get("signals", {})
+                    trade_recs      = data.get("trade_recs", {})
+                    strategy_errors = data.get("strategy_errors", {})
+                    combined        = data.get("combined")
+                    market_meta     = data.get("market_meta", {})
 
-        if result["status"] != "success":
-            return templates.TemplateResponse(
-                request=request,
-                name="partials/strategy_engine_results.html",
-                context={"error": result.get("message", "Unknown error")}
-            )
+        rows_html = _render(
+            "partials/strategy_table_rows.html",
+            strategies=_build_strategy_list(),
+            selected_strategies=selected_strategies,
+            weights=weights,
+            signals=signals,
+            signal_scores=SIGNAL_SCORES,
+            trade_recs=trade_recs,
+            strategy_errors=strategy_errors,
+        )
+        summary_html = _render(
+            "partials/strategy_summary.html",
+            error=summary_error,
+            combined=combined,
+            market_meta=market_meta,
+            strategy_errors=strategy_errors,
+            buy_threshold=BUY_THRESHOLD,
+            sell_threshold=SELL_THRESHOLD,
+        )
 
-        data = result["data"]
-        return templates.TemplateResponse(
-            request=request,
-            name="partials/strategy_engine_results.html",
-            context={
-                "error":           None,
-                "symbol":          symbol,
-                "source":          source,
-                "combined":        data.get("combined", {}),
-                "signals":         data.get("signals", {}),
-                "weights":         data.get("weights", {}),
-                "strategy_errors": data.get("strategy_errors", {}),
-                "market_meta":     data.get("market_meta", {}),
-                "signal_scores":   SIGNAL_SCORES,
-                "buy_threshold":   BUY_THRESHOLD,
-                "sell_threshold":  SELL_THRESHOLD,
-            }
+        return HTMLResponse(
+            f'<div id="strategy-table-container" class="table-wrapper" hx-swap-oob="true">{rows_html}</div>'
+            f'<div id="strategy-summary" hx-swap-oob="true">{summary_html}</div>'
         )
