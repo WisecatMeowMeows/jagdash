@@ -47,10 +47,7 @@ def _period_to_ms(period: str) -> tuple[int, int]:
     """
     end   = datetime.now(timezone.utc)
     delta_map = {
-        "6h":  timedelta(hours=6),
-        "12h": timedelta(hours=12),
         "1d": timedelta(days=1),
-        "3d":  timedelta(days=3),
         "5d": timedelta(days=5),
         "1mo": timedelta(days=30),
         "3mo": timedelta(days=90),
@@ -68,7 +65,6 @@ def _period_to_ms(period: str) -> tuple[int, int]:
 # SOURCE: Yahoo Finance (via yfinance)
 # ---------------------------------------------------------------------------
 
-
 def _fetch_yfinance(symbol, period, interval, start, end):
     """
     Original Yahoo Finance source via yfinance library.
@@ -79,20 +75,6 @@ def _fetch_yfinance(symbol, period, interval, start, end):
 
     ticker = yf.Ticker(symbol)
     kwargs = {"interval": interval, "auto_adjust": True}
-
-    # ------yfinance doesn't support sub-day periods — convert to start/end
-    if period in ("6h", "12h"):
-        from datetime import datetime, timezone, timedelta
-        hours = 6 if period == "6h" else 12
-        end_dt   = datetime.now(timezone.utc)
-        start_dt = end_dt - timedelta(hours=hours)
-        kwargs["start"] = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-        kwargs["end"]   = end_dt.strftime("%Y-%m-%d %H:%M:%S")
-    elif start or end:
-        ...
-    else:
-        kwargs["period"] = period
-    #-------------end conversion of 6h and 12h for Yfinance
 
     if start or end:
         if start: kwargs["start"] = start
@@ -135,8 +117,25 @@ def _fetch_hyperliquid(symbol, period, interval, start, end):
     Candle fields from API: t (open time ms), T (close time ms),
     o (open), h (high), l (low), c (close), v (volume), n (trades)
     """
-    # Normalize symbol — strip everything after - or /
-    clean_symbol = symbol.split("-")[0].split("/")[0].upper()
+    # Normalize symbol for Hyperliquid.
+    #
+    # Standard perps: just the uppercase coin name
+    #   BTC-USD → BTC,  ETH → ETH
+    #
+    # HIP-3 deployer perps use dex:TICKER format (lowercase dex, uppercase ticker)
+    #   xyz:BRENTOIL → xyz:BRENTOIL  (preserve as-is, just uppercase ticker)
+    #   XYZ:BRENTOIL → xyz:BRENTOIL  (lowercase the dex prefix)
+    #   BRENTOIL     → BRENTOIL      (no prefix: pass bare, let API return 500
+    #                                  with a clear error if not found)
+    #
+    # Do NOT strip the dex: prefix — it is required for HIP-3 assets.
+    if ":" in symbol:
+        # Has deployer prefix — preserve structure, normalize case
+        dex, ticker = symbol.split(":", 1)
+        clean_symbol = f"{dex.lower()}:{ticker.upper()}"
+    else:
+        # Standard perp — strip exchange suffixes and uppercase
+        clean_symbol = symbol.split("-")[0].split("/")[0].upper()
 
     hl_interval  = _hl_interval(interval)
     start_ms, end_ms = _period_to_ms(period) if not (start or end) else (
@@ -279,6 +278,134 @@ def _fetch_coinmarketcap(symbol, period, interval, start, end, api_key):
              "_cmc_free_tier": True}]
 
 
+
+# ---------------------------------------------------------------------------
+# SOURCE: Binance
+# ---------------------------------------------------------------------------
+
+def _binance_interval(interval: str) -> str:
+    """Convert JagDash interval strings to Binance format."""
+    mapping = {
+        "1m": "1m", "2m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+        "60m": "1h", "90m": "1h", "1h": "1h", "6h": "6h", "12h": "12h",
+        "1d": "1d", "3d": "3d", "1wk": "1w", "1mo": "1M",
+    }
+    mapped = mapping.get(interval)
+    if not mapped:
+        raise Exception(
+            f"Interval '{interval}' not supported by Binance. "
+            f"Use: 1m, 3m, 5m, 15m, 30m, 1h, 6h, 12h, 1d, 3d, 1w, 1M"
+        )
+    return mapped
+
+
+def _binance_symbol(symbol: str) -> str:
+    """
+    Normalize any symbol to Binance format (BTCUSDT).
+
+    BTC      → BTCUSDT   (bare coin: append USDT)
+    ETH      → ETHUSDT
+    BTC-USD  → BTCUSDT   (strip hyphen, replace USD with USDT)
+    BTC-USDT → BTCUSDT   (strip hyphen)
+    BTCUSDT  → BTCUSDT   (already correct)
+    ETHBTC   → ETHBTC     (non-USDT pair: left as-is)
+
+    The key insight: bare coin names like BTC and ETH are 3-4 chars.
+    A complete Binance symbol is always longer (BTCUSDT=7, ETHBTC=6).
+    We check minimum length to distinguish "BTC" (bare) from "BTCUSDT" (complete).
+    """
+    sym = symbol.upper().replace("/", "").replace("-", "")
+
+    # Already a complete Binance symbol — must be longer than the longest
+    # quote currency (USDT=4 chars) plus at least 2 chars of base coin
+    QUOTE_CURRENCIES = ("USDT", "BUSD", "USDC", "BTC", "ETH", "BNB")
+    for quote in QUOTE_CURRENCIES:
+        if sym.endswith(quote) and len(sym) > len(quote):
+            return sym  # already in Binance format
+
+    # Had a USD suffix (from Yahoo-style symbols like BTC-USD → BTCUSD)
+    if sym.endswith("USD"):
+        return sym[:-3] + "USDT"
+
+    # Bare coin name — default to USDT pair
+    return sym + "USDT"
+
+
+def _fetch_binance(symbol, period, interval, start, end):
+    """
+    Binance Spot API — public, no key required.
+    Endpoint: GET https://api.binance.com/api/v3/klines
+
+    Returns up to 1000 candles per request; auto-paginates for longer ranges.
+
+    Response array positions (Binance docs):
+        [0] open time ms, [1] open, [2] high, [3] low, [4] close, [5] volume
+    """
+    bn_symbol   = _binance_symbol(symbol)
+    bn_interval = _binance_interval(interval)
+
+    if start or end:
+        start_ms = int(datetime.fromisoformat(start).timestamp() * 1000) if start else None
+        end_ms   = int(datetime.fromisoformat(end).timestamp()   * 1000) if end else None
+    else:
+        start_ms, end_ms = _period_to_ms(period)
+
+    all_candles   = []
+    limit         = 1000
+    current_start = start_ms
+
+    while True:
+        params = {"symbol": bn_symbol, "interval": bn_interval, "limit": limit}
+        if current_start:
+            params["startTime"] = current_start
+        if end_ms:
+            params["endTime"] = end_ms
+
+        response = requests.get(
+            "https://api.binance.com/api/v3/klines",
+            params=params,
+            timeout=15,
+        )
+        response.raise_for_status()
+        candles = response.json()
+
+        # Binance returns an error dict if the symbol is invalid
+        if isinstance(candles, dict) and candles.get("code"):
+            raise Exception(
+                f"Binance error {candles['code']}: {candles.get('msg', 'unknown')}. "
+                f"Symbol tried: {bn_symbol}. "
+                f"Use USDT pairs like BTCUSDT, ETHUSDT — or just BTC, ETH."
+            )
+
+        if not candles:
+            break
+
+        all_candles.extend(candles)
+
+        if len(candles) < limit:
+            break  # reached the end
+
+        # Advance past the last candle's close time to avoid overlap
+        current_start = int(candles[-1][6]) + 1
+        if end_ms and current_start >= end_ms:
+            break
+
+    if not all_candles:
+        return None
+
+    return [
+        {
+            "date":   datetime.fromtimestamp(int(c[0]) / 1000,
+                                              tz=timezone.utc).isoformat(),
+            "open":   float(c[1]),
+            "high":   float(c[2]),
+            "low":    float(c[3]),
+            "close":  float(c[4]),
+            "volume": float(c[5]),
+        }
+        for c in all_candles
+    ]
+
 # ---------------------------------------------------------------------------
 # SOURCE REGISTRY
 # Maps source name → fetch function.
@@ -298,6 +425,9 @@ def fetch(source: str, symbol: str, period: str, interval: str,
     elif source == "hyperliquid":
         return _fetch_hyperliquid(symbol, period, interval, start, end)
 
+    elif source == "binance":
+        return _fetch_binance(symbol, period, interval, start, end)
+
     elif source == "coinmarketcap":
         if not api_key:
             raise Exception(
@@ -315,15 +445,22 @@ def fetch(source: str, symbol: str, period: str, interval: str,
 SOURCE_LABELS = {
     "yahoo":         "Yahoo Finance",
     "hyperliquid":   "Hyperliquid (no key needed)",
+    "binance":       "Binance (no key needed)",
     "coinmarketcap": "CoinMarketCap (API key required)",
 }
 
 SOURCE_NOTES = {
-    "yahoo": ("Stocks, ETFs, crypto (BTC-USD format), forex, futures."
-             "Intraday limit: 1m=7d, 5m=60d, 1h=730d."),
+    "yahoo": "Stocks, ETFs, crypto (BTC-USD format), forex, futures.",
     "hyperliquid": (
-        "Perpetual futures only. Use coin symbol without suffix: BTC, ETH, SOL. "
-        "No API key required. Up to 5000 candles available."
+        "Perpetual futures only. No API key required. Up to 5000 candles. "
+        "Standard perps: BTC, ETH, SOL. "
+        "HIP-3 real-world assets: xyz:BRENTOIL, xyz:GOLD, xyz:CL (WTI oil). "
+        "Use lowercase dex prefix: xyz:TICKER."
+    ),
+    "binance": (
+        "Spot pairs, no API key required. Auto-paginates for long ranges. "
+        "Use USDT pairs: BTCUSDT, ETHUSDT — or just BTC, ETH (USDT assumed). "
+        "Not available in all countries (US users: try Binance.US)."
     ),
     "coinmarketcap": (
         "Free tier: current price only (1 candle). "

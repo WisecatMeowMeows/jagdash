@@ -79,9 +79,51 @@
                 <h1 class="dashboard-title" id="dashboard-title">{{ dashboard_name }}</h1>
             </div>
             
-            <!-- Inside templates/base.html where your navbar used to be -->
-            {% include "partials/navbar_fragment.html" %}
- 
+            <nav class="plugin-nav" id="plugin-nav-container">
+                <p class="nav-label">Plugins</p>
+                
+                <!--
+                    Jinja2 for loop — renders one button per loaded plugin.
+                    {{ plugins }} was passed in from main.py's route handler.
+                    
+                    HTMX attributes on each button:
+                    hx-get="/plugin/market_data"  — make a GET request to this URL when clicked
+                    hx-target="#main-content"     — put the response into this element
+                    hx-push-url="true"            — update the browser's URL bar (enables bookmarking)
+                    hx-swap="innerHTML"           — replace the inner HTML of the target
+                    
+                    hx-swap options: innerHTML (default), outerHTML, beforeend, afterend, etc.
+                    innerHTML replaces everything inside the target element.
+                    outerHTML replaces the target element itself.
+                -->
+                {% for plugin in plugins %}
+                <button 
+                    class="nav-btn"
+                    hx-get="/plugin/{{ plugin }}"
+                    hx-target="#main-content"
+                    hx-push-url="true"
+                    hx-swap="innerHTML"
+                    hx-indicator="#loading-indicator"
+                >
+                    {{ plugin }}
+                </button>
+                {% endfor %}
+
+                <!-- New Folder Browser Button -->
+                <button 
+                    class="nav-btn folder-select-btn"
+                    hx-post="/plugins/select-folder"
+                    hx-target="#plugin-nav-container"
+                    hx-swap="outerHTML"
+                    hx-indicator="#loading-indicator"
+                    style="margin-bottom: 10px; border-bottom: 1px solid #ccc; font-weight: bold;"
+                >
+                    📁 Select Suite
+                </button>
+            </nav>
+            
+
+            </nav>
             <div class="sidebar-footer">
                 <p class="version-label">JagDash</p>
             </div>

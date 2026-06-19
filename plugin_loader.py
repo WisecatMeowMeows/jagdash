@@ -2,27 +2,31 @@ import os
 import importlib.util
 import fnmatch
 
-PLUGIN_DIR = "plugins"
+#PLUGIN_DIR = "plugins"  //this is the default, was fixed directory in the past
 
 
-def load_plugins():
+def load_plugins(plugin_dir):
     plugins = []
 
-    if not os.path.exists(PLUGIN_DIR):
+    if not plugin_dir:
+        plugin_dir = "plugins"  #set to default. assuming that at minmum the config_plugin will be here
+        #a better option is to use a built-in file browser here to force the user to pick a plugin directory
+
+    if not os.path.exists(plugin_dir):
         return plugins
 
     filename = None
 
     #find filename that ends in plugin.py
-    for folder in os.listdir(PLUGIN_DIR):
+    for folder in os.listdir(plugin_dir):
         #print("folder=", folder)
-        for file in os.listdir(os.path.join(PLUGIN_DIR, folder)):
+        for file in os.listdir(os.path.join(plugin_dir, folder)):
             #print("examining filename=", file)
             if fnmatch.fnmatch(file,'*plugin.py'):
                 filename = file
                 #print("added filename=", filename)
                 plugin_path = os.path.join(
-                    PLUGIN_DIR,
+                    plugin_dir,
                     folder,
                     filename
                 )

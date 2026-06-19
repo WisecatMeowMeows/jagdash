@@ -1,0 +1,35 @@
+<!-- templates/partials/navbar_fragment.html -->
+<nav class="plugin-nav" id="plugin-nav-container">
+    <p class="nav-label">Plugins</p>
+    
+    <button 
+        class="nav-btn folder-select-btn"
+        hx-post="/plugins/select-folder"
+        hx-target="#plugin-nav-container"
+        hx-swap="outerHTML"
+        hx-indicator="#loading-indicator"
+        style="margin-bottom: 4px; font-weight: bold;"
+    >
+        📁 Choose Plugin Folder
+    </button>
+
+    <!-- Context Indicator: Shows clean final folder name with hoverable full system path -->
+    <div class="current-folder-indicator" 
+         title="{{ full_path }}" 
+         style="font-size: 11px; color: #888; padding: 2px 10px 10px 10px; border-bottom: 1px dashed #ccc; margin-bottom: 10px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        Active: <span style="color: #555; font-weight: bold;">{{ current_folder_name }}</span>
+    </div>
+
+    {% for plugin in plugins %}
+    <button 
+        class="nav-btn"
+        hx-get="/plugin/{{ plugin }}"
+        hx-target="#main-content"
+        hx-push-url="true"
+        hx-swap="innerHTML"
+        hx-indicator="#loading-indicator"
+    >
+        {{ plugin }}
+    </button>
+    {% endfor %}
+</nav>

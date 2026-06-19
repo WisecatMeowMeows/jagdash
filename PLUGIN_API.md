@@ -1,286 +1,96 @@
-# PLUGIN_API.md
-## JagDash Plugin API Reference
-
-Version: 2.0 (FastAPI)
-
----
-
-## Overview
-
-JagDash uses a **mediator / hub-and-spoke architecture**.
-
-Plugins do **not** communicate directly with one another.
-All requests and events flow through `PluginHost`, which acts as the central router.
-
-The web layer is **FastAPI + HTMX**. Plugins register their own HTTP routes
-via `register_routes()` — no changes to `main.py` are needed when adding a plugin.
-
----
-
-## Plugin File Structure
-
-Each plugin lives in its own subdirectory:
-
-```
-plugins/
-    your_plugin/
-        plugin.py        ← required
-```
-
-`plugin.py` must implement:
-
-| Function | Required | Purpose |
-|---|---|---|
-| `manifest()` | Yes | Declares plugin identity, capabilities, and UI defaults |
-| `handle_request(request, context)` | Yes | Handles capability requests from other plugins |
-| `get_ui_context(context)` | No | Provides data for the plugin's Jinja2 template |
-| `register_routes(app, templates, get_host)` | No | Registers HTTP routes for the plugin's UI actions |
-
-The UI lives in two template files:
-
-```
-templates/
-    partials/
-        your_plugin.html           ← the form / controls panel
-        your_plugin_results.html   ← the results fragment (returned by routes)
-```
-
----
-
-## `manifest()`
-
-```python
-def manifest():
+PLUGIN_API.md — JagDash Plugin API SpecificationPlatform Contract Version: 2.0 (Folder-Isolated, Hot-Reload Standard)Target Audience: Developers, Core Integrators, and Automated Agents1. CORE PLUGIN ARCHITECTUREJagDash implements a strict hub-and-spoke mediator architecture. Plugins are completely decoupled modules that must never interact directly or share module-level python import expressions.All computation requests, message broadcasts, and system event sequences pass through the central PluginHost engine using data capabilities tokens.2. CO-LOCATED REPOSITORY STRUCTUREEvery plugin must reside in its own self-contained subdirectory inside the active suite. All python code, interface frames, and action result fragments must live together in the same folder.textAny-Plugin-Suite-Directory/
+└── {plugin_name}/                  # Unique snake_case directory identifier
+    ├── plugin.py                   # REQUIRED: Core lifecycle contract interface hooks
+    ├── {plugin_name}.html          # MAIN VIEW: Primary HTML frame injected on GET clicks
+    └── {plugin_name}_results.html  # ACTION RESPONSE: Targeted sub-template fragment returned by POST
+Use code with caution.Required Module Hooks (plugin.py Matrix):FunctionRequirementExecution Lifecycle & Purposemanifest()REQUIREDDeclares name, identity versions, capability registries, and interface field default values.handle_request(req, ctx)REQUIREDExecutes synchronous business logic triggered by core framework routing or internal capabilities lookups.get_ui_context(ctx)OPTIONALGenerates supplementary static data variables fed to {plugin_name}.html during initial render cycles.register_routes(app, temp, host)OPTIONALInjects dedicated FastAPI HTTP backend form submission routing handlers live at runtime.3. CORE PLATFORM INTERFACE SPECIFICATIONA. manifest() -> dictpythondef manifest() -> dict:
     return {
-        "name":     "my_plugin",        # unique, snake_case
-        "version":  "1.0",
-        "provides": ["my.capability"],  # capabilities this plugin handles
-        "requires": ["other.capability"], # capabilities this plugin calls
-        "ui_defaults": {                # default form field values (optional)
-            "symbol":   "BTC-USD",
-            "interval": "5m",
+        "name": "plugin_name",             # Must match parent folder name exactly
+        "version": "2.0",                  # Platform specification version target
+        "provides": ["system.metric"],     # Capability tokens processed via handle_request()
+        "requires": ["service.database"],  # Token blocks this plugin queries via context.request()
+        "ui_defaults": {                   # Standard interface dictionary default settings fallback
+            "mode": "detailed",
+            "max_records": 50
         }
     }
-```
-
-**`ui_defaults`** — when the user navigates to your plugin, these values
-pre-fill the form. If the user has submitted the form before, their last-used
-values override these defaults (stored in the session). This means
-`main.py` never needs to know your plugin's field names or defaults.
-
----
-
-## `handle_request(request, context)`
-
-Called by PluginHost when another plugin (or the UI) requests a capability.
-
-### Request format
-
-```python
-request = {
-    "capability": "my.capability",
-    "payload": {
-        "symbol": "BTC-USD",   # arbitrary input; always use .get() with defaults
-    }
+Use code with caution.Note on State Mapping: When a user enters the plugin workspace, ui_defaults are automatically loaded. If the user previously submitted a layout form, their last-used configuration variables instantly overwrite these settings via the session token store (ui), keeping main.py entirely unaware of individual plugin parameter fields.B. handle_request(request: dict, context: PluginContext) -> dictInvoked synchronously by PluginHost whenever an external core component queries a token declared inside your plugin's provides array.Input Contract Format:json{
+  "capability": "system.metric",
+  "payload": {
+    "max_records": 50
+  }
 }
-```
+Use code with caution.Return Output Requirements:python# SUCCESS OUTCOME: Return standard dictionary containing serializable JSON variables
+return {"status": "success", "data": {"records": [1, 2, 3]}}
 
-### Response format
-
-```python
-# Success
-return {"status": "success", "data": <your output>}
-
-# Error
-return {"status": "error", "message": "Human-readable description"}
-```
-
-**Rules:**
-- Never raise an unhandled exception — always return a response dict
-- Always use `payload.get("key", default)` — never assume a key exists
-- Wrap every `context.request()` call in try/except
-- Check `response["status"]` before using `response["data"]`
-
----
-
-## `get_ui_context(context)`
-
-Called by the generic `GET /plugin/{name}` route when the user navigates
-to your plugin. Return a dict of variables for your Jinja2 template.
-
-The session-restored `ui_defaults` are merged in automatically as `ui`.
-Your template accesses them as `{{ ui.symbol }}`, `{{ ui.interval }}`, etc.
-
-```python
-def get_ui_context(context):
-    return {
-        "interval_options": ["1m", "5m", "15m", "1h", "1d"],
-        # anything your template needs beyond the restored form values
-    }
-```
-
-Keep this lightweight — it runs every time the user clicks your plugin.
-
----
-
-## `register_routes(app, templates, get_host)`
-
-Register your plugin's HTTP routes directly onto the FastAPI app.
-Called once at JagDash startup. **No changes to `main.py` needed.**
-
-```python
-def register_routes(app, templates, get_host):
-    from fastapi import Form, Request
+# FAILURE OUTCOME: Catch all internal tracebacks; return human-readable error messages
+return {"status": "error", "message": "Database tracking connection dropped."}
+Use code with caution.Strict Execution Rejection Laws:NEVER allow internal unhandled exceptions to escape handle_request. Wrap computation steps in standard try/except closures.ALWAYS use payload.get("key", default) syntax. Never assume a payload input parameter exists.C. get_ui_context(context) -> dictRuns on every primary GET /plugin/{name} panel navigation sequence. Generates secondary dictionary options (e.g., custom selector dropdown collections) needed by {plugin_name}.html. The user's active session state is automatically injected into the template as the ui object variable (accessed as {{ ui.max_records }}). Keep this function lightweight.D. register_routes(app, templates, get_host)Dynamically binds interactive HTTP form targets onto the core FastAPI routing table during application startup or runtime hot-reloads.pythondef register_routes(app, templates, get_host):
+    # CRITICAL LAW 1: Dependencies MUST be imported inside the function scope
+    from fastapi import Request, Form
     from fastapi.responses import HTMLResponse
     from plugin_context import PluginContext
-
-    @app.post("/plugin/my_plugin/action", response_class=HTMLResponse)
-    async def my_plugin_action(
-        request:  Request,
-        my_input: str = Form("default"),
+    
+    @app.post("/plugin/plugin_name/execute", response_class=HTMLResponse)
+    async def plugin_name_action_endpoint( # CRITICAL LAW 2: Function name must be app-wide unique
+        request: Request,                  # CRITICAL LAW 3: Hint explicitly to Request, NEVER object
+        mode_input: str = Form("detailed")
     ):
-        # Save state so the form restores on next visit
-        request.session["ui_my_plugin"] = {"my_input": my_input}
-
-        host    = get_host(request)
+        # 1. Capture and commit interface inputs into the session middleware track
+        request.session["ui_plugin_name"] = {"mode": mode_input}
+        
+        # 2. Reconstruct execution context wrappers
+        host = get_host(request)
         context = PluginContext(host)
-
+        
+        # 3. Request downstream capabilities securely
         try:
-            result = context.request("my.capability", {"my_input": my_input})
+            res = context.request("service.database", {"mode": mode_input})
+            if res["status"] != "success":
+                return HTMLResponse(f'<div class="error-msg">{res["message"]}</div>')
         except Exception as e:
-            return HTMLResponse(f'<div class="error-msg">{e}</div>')
-
-        if result["status"] != "success":
-            return HTMLResponse(f'<div class="error-msg">{result["message"]}</div>')
-
+            return HTMLResponse(f'<div class="error-msg">Broker failure: {str(e)}</div>')
+            
+        # 4. CRITICAL LAW 4: Render absolute filename paths WITHOUT folder path prefixes
+        target_template = "plugin_name_results.html"
+        try:
+            templates.env.loader.load(templates.env, target_template)
+        except Exception:
+            target_template = "partials/plugin_name_results.html" # Framework legacy compatibility
+            
         return templates.TemplateResponse(
-            request=request,
-            name="partials/my_plugin_results.html",
-            context={"data": result["data"], "error": None}
+            request=request, name=target_template, context={"data": res["data"]}
         )
-```
-
-**Standard signature:** always `(app, templates, get_host)`.
-
-**Import FastAPI inside the function**, not at the top of the file.
-This keeps the plugin's core logic free of web framework dependencies,
-making it easier to test in isolation.
-
-**Session state:** save submitted form values to `request.session["ui_{name}"]`
-so they are restored the next time the user visits the plugin. The key must
-match the pattern `ui_` + your plugin's manifest name.
-
----
-
-## The `context` Object
-
-Available in both `handle_request` and `register_routes` route handlers.
-
-### `context.request(capability, payload)`
-
-```python
-try:
-    response = context.request("market.price", {"symbol": "BTC-USD"})
+Use code with caution.4. THE LIVE CONTEXT SERVICE LAYERThe context engine instance is automatically generated and passed directly into handle_request and register_routes logic blocks.context.request(capability: str, payload: dict) -> dictSynchronously queries an external capability. Raises an exception if the platform target configuration is missing or broken.pythontry:
+    response = context.request("service.database", {"query": "all"})
+    if response["status"] == "success":
+        data = response["data"]
 except Exception as e:
-    return {"status": "error", "message": f"market.price failed: {e}"}
+    logger.error(f"Downstream capability dependency error: {e}")
+Use code with caution.context.publish(event: str, payload: dict) -> NoneTriggers an immediate, asynchronous, system-wide event message transmission. This is a fire-and-forget broadcast that returns no acknowledgement payload. Call this function after a core logic operation completes successfully.pythoncontext.publish("plugin_name.state_updated", {"updated_by": "user_form"})
+Use code with caution.5. USER INTERFACE RENDERING SCHEMATICSAll plugin frontends use raw server-side rendered HTML fragments managed by HTMX injection mechanisms.Main View Component ({plugin_name}.html Pattern)This component must be an isolated HTML section block. It must never contain top-level structural layout document declarations like <html>, <head>, or <body> wrapper markup.html<div class="plugin-panel">
+    <div class="plugin-header">
+        <h2>Custom Core Panel</h2>
+    </div>
 
-if response["status"] != "success":
-    return response   # propagate error
+    <!-- Interactive HTMX Data Request Transmission Form -->
+    <form hx-post="/plugin/plugin_name/execute"
+          hx-target="#plugin-name-workspace"
+          hx-swap="innerHTML"
+          hx-indicator="#plugin-name-spinner">
+          
+        <div class="control-group">
+            <label>Operation Mode</label>
+            <!-- Injects value from active session state automatically -->
+            <input type="text" name="mode_input" value="{{ ui.mode }}" class="text-input">
+        </div>
+        
+        <button type="submit" class="btn btn--primary">Execute Data Run</button>
+    </form>
 
-data = response["data"]
-```
-
-### `context.publish(event, payload)`
-
-```python
-context.publish("my.event.name", {"key": "value"})
-```
-
-Fire-and-forget. No return value. Call after your core logic succeeds.
-
----
-
-## HTML Templates
-
-Templates are Jinja2 files in `templates/partials/`.
-
-**The UI panel** (`your_plugin.html`) is a fragment loaded into `#main-content`
-when the user clicks your plugin in the sidebar. It is not a full HTML page —
-no `<html>`, `<head>`, or `<body>` tags.
-
-Use HTMX attributes to wire buttons to your routes:
-
-```html
-<form hx-post="/plugin/my_plugin/action"
-      hx-target="#my-results"
-      hx-swap="innerHTML"
-      hx-indicator="#my-loading">
-
-    <input type="text" name="my_input" value="{{ ui.my_input }}" class="text-input">
-    <button type="submit" class="btn btn--primary">Run</button>
-</form>
-
-<div id="my-loading" class="htmx-indicator loading-inline">Working…</div>
-<div id="my-results" class="results-area">
-    <p class="placeholder-msg">Results appear here.</p>
+    <div id="plugin-name-spinner" class="htmx-indicator loading-inline">Processing Layout...</div>
+    <div id="plugin-name-workspace" class="results-area">
+        <p class="placeholder-msg">Awaiting execution action triggers.</p>
+    </div>
 </div>
-```
-
-Note `value="{{ ui.my_input }}"` — this restores the last-used value from
-the session. `ui` is passed automatically by the `GET /plugin/{name}` route.
-
-**The results fragment** (`your_plugin_results.html`) is returned by your
-POST route and dropped into `#my-results` by HTMX.
-
----
-
-## Capability Naming
-
-```
-domain.noun          # market.price
-domain.noun.verb     # market.strategy.signal
-```
-
-### Signal vocabulary (trading signals only)
-
-| Signal | Meaning |
-|---|---|
-| `BUY` | Bullish — price expected to rise |
-| `SELL` | Bearish — price expected to fall |
-| `HOLD` | Neutral / no edge |
-| `WATCH` | Setup forming, direction unclear |
-
----
-
-## Known Capabilities
-
-| Capability | Plugin | Output |
-|---|---|---|
-| `market.price` | `market_data` | `list[{open, high, low, close, volume, date}]` |
-| `market.settings` | `market_data` | `{symbol, interval, period}` |
-| `market.strategy.signal` | `strategy_engine` | `{symbol, combined, signals, weights, market_meta}` |
-| `news.search` | `news_scanner` | `list[article]` (NewsAPI format) |
-| `news.signal` | `news_signal` | `{signal, bullish_total, bearish_total, articles}` |
-| `news.headlines` | `news_feed` | `{headlines: [str]}` |
-| `overview.summary` | `overview` | `{results: {market_price, strategy, news_signal, news_headlines}}` |
-| `system.time` | `example_plugin` | `{timestamp, timezone}` |
-
----
-
-## Checklist: New Plugin
-
-- [ ] Plugin lives in `plugins/your_name/plugin.py`
-- [ ] `manifest()` has all required keys: `name`, `version`, `provides`, `requires`
-- [ ] `manifest()` has `ui_defaults` with default values for all form fields
-- [ ] `name` is unique and snake_case
-- [ ] All capabilities in `requires` are actually called in the code
-- [ ] All capabilities in `provides` are handled in `handle_request()`
-- [ ] `handle_request()` never raises; always returns success or error dict
-- [ ] All `context.request()` calls are in try/except
-- [ ] `register_routes()` imports `Request` from fastapi inside the function
-- [ ] Route handlers save form values to `request.session["ui_{name}"]`
-- [ ] Template at `templates/partials/your_name.html` exists
-- [ ] Form fields use `value="{{ ui.field_name }}"` to restore last values
-- [ ] Signal strings use the standard vocabulary (BUY/SELL/HOLD/WATCH)
-- [ ] Plugin does not import other plugin files directly
-- [ ] New dependencies added to `requirements.txt`
+Use code with caution.6. PLATFORM INTEGRATION ENGINEERING CHECKLISTUse this checklist when writing or validating a modular plugin module for JagDash:The plugin package is isolated inside its own folder named exactly match manifest()["name"].manifest() contains all required standard schema keys: name, version, provides, requires, and ui_defaults.Every capability declared inside the provides string array is directly mapped to a logical switch block inside handle_request().Every dependency declared inside requires is executed safely wrapped within a standard try/except block.handle_request() never leaks raw runtime code failures; it intercepts all errors and returns a clean {"status": "error", "message": "..."} block.register_routes() defines all external routing dependencies (like Form, Request) strictly inside the function scope block.Target route handlers hint request structures explicitly as request: Request, avoiding generic object types.All POST endpoints update input session state variables using the strict string prefix key standard formatting: request.session["ui_{plugin_name}"].Template response file selections are requested via pure filename strings, omitting hardcoded folder string layouts like partials/.Input elements bind active settings data back to fields using value="{{ ui.field_name }}" to ensure persistent user interface recovery states.The codebase is completely free of any direct references to external dashboard execution tools like streamlit.

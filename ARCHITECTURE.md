@@ -1,295 +1,67 @@
-# ARCHITECTURE.md
-## JagDash System Architecture
-
-Version: 2.0 (FastAPI)
-
----
-
-## What JagDash Is
-
-JagDash is a **plugin-based dashboard framework** built on FastAPI + HTMX.
-It provides the infrastructure — routing, rendering, event broadcasting,
-authentication, theming — so that plugin authors can focus purely on domain logic.
-
-The core system is intentionally thin. Almost all functionality lives in plugins.
-
-JagDash is the platform. NiteTrader (crypto trading tool) is one configuration
-that runs on JagDash. Any domain-specific dashboard can be built the same way.
-
----
-
-## Hub-and-Spoke Architecture
-
-```
-                        ┌─────────────┐
-                        │  PluginHost │
-                        │   (Hub)     │
-                        └──────┬──────┘
-               ┌───────────────┼───────────────┐
-               │               │               │
-        ┌──────┴──────┐ ┌──────┴──────┐ ┌──────┴──────┐
-        │ market_data │ │strategy_eng │ │  my_plugin  │
-        │  (plugin)   │ │  (plugin)   │ │  (plugin)   │
-        └─────────────┘ └─────────────┘ └─────────────┘
-```
-
-Plugins never talk directly to each other. All communication goes through PluginHost.
-
-This means:
-- Plugins are interchangeable — swap `market_data` for a different data source
-  and `strategy_engine` never knows
-- Plugins are independently testable
-- A broken plugin cannot crash another plugin (only its own request chain)
-
----
-
-## Web Layer
-
-```
-Browser
-  │
-  │  HTTP (GET page, POST form via HTMX)
-  ▼
-FastAPI (main.py)
-  │  renders HTML via Jinja2 templates
-  │  calls PluginHost for data
-  │
-  ▼
-PluginHost → Plugin.handle_request() → data
-```
-
-**FastAPI** serves pages and handles form submissions.
-**HTMX** updates page fragments without full reloads — button clicks send POST
-requests and the response HTML replaces only the relevant section of the page.
-**Jinja2** renders HTML templates server-side before sending to the browser.
-**CSS custom properties** in `jagdash.css` drive the theme system.
-
----
-
-## Two Communication Channels
-
-### 1. Request / Response (synchronous)
-
-One plugin asks PluginHost for a capability. PluginHost finds the plugin
-that provides it, calls `handle_request()`, and returns the result.
-
-```
-strategy_engine ──request("market.price")──► PluginHost ──► market_data
-strategy_engine ◄──────────response────────── PluginHost ◄── market_data
-```
-
-Use this when you need data before you can continue.
-
-### 2. Publish / Subscribe (fire and forget)
-
-A plugin broadcasts an event. Any component subscribed to that event receives it.
-
-```
-market_data ──publish("market.tick", {...})──► PluginHost ──► [all subscribers]
-```
-
-Use this to notify the rest of the system that something happened,
-without caring who's listening.
-
----
-
-## Plugin Lifecycle
-
-When JagDash starts (uvicorn main:app):
-
-1. `plugin_loader.py` scans the `plugins/` directory for `plugin.py` files
-2. Each plugin's `manifest()` is called to build the capability registry
-3. The routing table is built: capability string → plugin
-4. Each plugin's `register_routes()` is called (if defined) to register
-   its HTTP routes directly onto the FastAPI app
-5. The server starts listening for requests
-
-At runtime:
-- Browser navigates to a plugin → `GET /plugin/{name}` → `get_ui_context()` →
-  Jinja2 renders the plugin's HTML partial
-- User submits a form → `POST /plugin/{name}/action` → plugin's registered
-  route handler → `context.request()` → `handle_request()` → result →
-  Jinja2 renders the results partial → HTMX swaps it into the page
-
----
-
-## File Structure
-
-```
-jagdash/
-├── main.py                    # FastAPI app, startup, auth, config routes
-├── host.py                    # PluginHost — the hub
-├── plugin_loader.py           # scans plugins/ directory at startup
-├── plugin_context.py          # PluginContext — wraps PluginHost for plugins
-├── plugin_template.py         # starter template for new plugins
-├── example_plugin.py          # minimal working example
-├── theme_engine.py            # reads theme from profile, generates CSS
-├── auth.py                    # bcrypt password hashing, session auth helpers
-├── config_manager.py          # reads/writes jagdash_profiles.json
-├── event_bus.py               # pub/sub event routing
-├── request_schema.py          # validates request dicts
-│
-├── plugins/
-│   ├── market_data/
-│   │   └── plugin.py          # provides market.price, market.settings
-│   ├── strategy_engine/
-│   │   ├── plugin.py          # provides market.strategy.signal
-│   │   └── strategies/        # YAML and Python strategy files (auto-discovered)
-│   ├── news_scanner/
-│   │   └── plugin.py          # provides news.search
-│   ├── news_signal/
-│   │   └── plugin.py          # provides news.signal
-│   ├── news_feed/
-│   │   └── plugin.py          # provides news.headlines
-│   ├── overview/
-│   │   └── plugin.py          # provides overview.summary
-│   ├── config_plugin/
-│   │   └── plugin.py          # no capability; UI for profile/theme/key management
-│   └── alert_engine/
-│       └── plugin.py          # subscribes to market.tick
-│
-├── templates/
-│   ├── base.html              # page shell: sidebar, main content area, CSS/JS
-│   ├── login.html             # authentication page
-│   └── partials/              # plugin UI fragments (one per plugin)
-│       ├── market_data.html
-│       ├── market_data_results.html
-│       ├── strategy_engine.html
-│       ├── strategy_engine_results.html
-│       ├── news_scanner.html
-│       ├── news_scanner_results.html
-│       ├── news_signal.html
-│       ├── news_signal_results.html
-│       ├── overview.html
-│       ├── overview_results.html
-│       ├── config_plugin.html
-│       └── theme_form.html
-│
+ARCHITECTURE.md — JagDash System ArchitectureFramework Version: 2.0 (Dynamic Suite Hot-Reload Specification)Audience: Human Architects, Maintainers, and Platform Engineers [1]1. CORE SYSTEM DESIGN & PRINCIPLESJagDash is a lightweight, plugin-based dashboard orchestration platform built on FastAPI, HTMX, and Jinja2. The core repository provides foundational application plumbing — routing lifecycles, global session state middleware, profile storage, a unified message bus, and runtime user access authentication.The framework core is intentionally minimalist. It exposes no specific business components on its own. Instead, it serves as an infrastructure engine that discovers, binds, and executes entirely independent plugin extensions on demand.       ┌──────────────────────────────┐
+       │     Browser (HTMX View)      │
+       └──────────────┬───────────────┘
+                      │ HTTP POST / GET
+                      ▼
+       ┌──────────────────────────────┐
+       │       FastAPI Core           │
+       │ (Lifespan Core, Middleware)  │
+       └──────────────┬───────────────┘
+                      │ Routing Dispatch
+                      ▼
+  ┌───────────────────────────────────────┐
+  │         PluginHost (The Hub)          │
+  └───────────────────┬───────────────────┘
+     ┌────────────────┼────────────────┐
+     ▼                ▼                ▼
+┌──────────┐     ┌──────────┐     ┌──────────┐
+│ Plugin A │     ┌ Plugin B │     │ Plugin C │
+│ (Folder) │     │ (Folder) │     │ (Folder) │
+└──────────┘     └──────────┘     └──────────┘
+Architectural Mandates:The Hub-and-Spoke Pattern: Plugins never establish direct code dependencies or import chains with each other. All inter-plugin operations route securely through the central PluginHost data broker.Decoupled Immutability: Plugins are entirely swappable. A component providing a capability can be swapped out for a different version instantly without impacting downstream consumers.Server-Side Dominance: Content is rendered entirely as targeted HTML fragments on the server before being sent to the client browser. No complex client-side state engines, single-page-app (SPA) frameworks, or build steps are used.2. INTER-PLUGIN COMMUNICATION PIPELINESA. Synchronous Data Broker (Request / Response)When a plugin requires capability data owned by another module, it passes a structural request package through the active runtime context block. PluginHost performs a registry lookup and executes the targeted provider’s underlying logic synchronously.[Plugin A] ─── context.request("capability.token", payload) ───► [PluginHost]
+                                                                        │
+[Plugin A] ◄─── JSON Context Data Dictionary Return ──────────── [Plugin B]
+Use this configuration channel whenever immediate data resolution is necessary before downstream rendering blocks can proceed.B. Asynchronous Message Pipeline (Publish / Subscribe)Plugins can trigger system-wide broadcast tokens across the event bus without expecting a return payload. Any application module explicitly registered to listen for that structural event signature handles the incoming message asynchronously.[Plugin A] ─── context.publish("event.state_changed", data) ───► [PluginHost]
+                                                                        │
+                                                    ┌───────────────────┴───────────────────┐
+                                                    ▼                                       ▼
+                                           [Subscribed Plugin]                     [Subscribed Plugin]
+Use this configuration channel to signal system updates across independent modules without creating explicit dependencies.3. ENGINE RUNTIME LIFECYCLE & HOT-RELOADPhase I: Initial Application BootstrappingWhen the framework process kicks off via Uvicorn, the lifespan manager initializes. It processes standard relative paths ("plugins") by parsing active modules into memory, resolving core capability registries, validating package dependencies, and compiling baseline routes.Phase II: Runtime Dynamic Suite SwitchingWhen a user triggers the local filesystem folder browser button inside the web UI, a native modal dialogue intercepts the file environment:Safety Interception Check: The backend performs directory validation, rejecting repository root selection errors to prevent operational layout crashes.Sys-Path Registration: The chosen target suite directory path converts to a clean absolute reference layout string and is injected into sys.path.Host Object Recreation: The existing PluginHost mapping instance is safely torn down, a new one compiles from scratch, and active sub-routes bind on the fly.Jinja2 Cache Flushing: To prevent stale template lookup errors, the compilation state caches are cleared (templates.env.cache = None), forcing Jinja to recompile the active template paths in real-time.4. CO-LOCATED REPOSITORY MATRIXJagDash isolates core platform configurations from modular plugin packages. All plugin code assets, master layouts, and individual fragment templates must live together inside self-contained folders.textjagdash/                            # Framework Core Repository
+├── main.py                         # FastAPI App Configuration, Lifespan Loops, Core HTTP Routes
+├── host.py                         # PluginHost Registry State Management Hub
+├── plugin_loader.py                # File Scanner and Dynamic Python Module Compiler
+├── plugin_context.py               # Context Engine Wrapper for Inter-Plugin Token Queries
+├── theme_engine.py                 # Profile Dictionary Translator to Injected CSS :root Variables
+├── config_manager.py               # Reads/Writes Persistent Profile json Records Safely
+├── auth.py                         # Single-Password Bcrypt Session Token Context Helpers
 ├── static/
-│   ├── jagdash.css            # all styling, CSS custom properties for theming
-│   └── htmx.min.js            # HTMX library (served locally, no CDN)
+│   ├── jagdash.css                 # Master Application CSS Framework Blueprint Layouts
+│   └── htmx.min.js                 # Local HTMX Core Source Engine (No External CDNs Allowed)
+├── templates/
+│   ├── base.html                   # Global View Frame Shell Structure (Sidebar, Indicator Rails)
+│   └── login.html                  # Isolated Single-View User Access Challenge Layout
 │
-└── images/                    # user-supplied images (logo, background)
-```
-
----
-
-## Capability Registry
-
-Built automatically at startup from all loaded `manifest()` calls.
-
-| Capability | Plugin | Output |
-|---|---|---|
-| `market.price` | `market_data` | `list[{open,high,low,close,volume,date}]` |
-| `market.settings` | `market_data` | `{symbol, interval, period}` |
-| `market.strategy.signal` | `strategy_engine` | `{combined, signals, weights, market_meta}` |
-| `news.search` | `news_scanner` | `list[article]` (NewsAPI format) |
-| `news.signal` | `news_signal` | `{signal, bullish_total, bearish_total, articles}` |
-| `news.headlines` | `news_feed` | `{headlines: [str]}` |
-| `overview.summary` | `overview` | `{results: {market_price, strategy, news_signal, news_headlines}}` |
-
----
-
-## Known Plugins
-
-### `market_data`
-- **Provides:** `market.price`, `market.settings`
-- **Requires:** nothing
-- **Data source:** Yahoo Finance via yfinance
-- **Publishes:** `market.tick` with latest close price
-
-### `strategy_engine`
-- **Provides:** `market.strategy.signal`
-- **Requires:** `market.price`
-- **Strategies:** built-in Python + external YAML/Python files in `strategies/`
-- **External strategies:** drop a `.py` or `.yaml` file in `strategies/`, reload
-- **Publishes:** `strategy.signal.generated`
-
-### `news_scanner`
-- **Provides:** `news.search`
-- **Requires:** nothing (calls NewsAPI directly)
-- **API key:** `NEWSAPI_KEY` in `.env` or config plugin UI
-
-### `news_signal`
-- **Provides:** `news.signal`
-- **Requires:** `news.search`
-- **Method:** keyword scoring (bullish/bearish word lists)
-- **Publishes:** `news.signal_generated`
-
-### `news_feed`
-- **Provides:** `news.headlines`
-- **Requires:** nothing
-- **Note:** currently a stub returning placeholder headlines
-
-### `overview`
-- **Provides:** `overview.summary`
-- **Requires:** `market.price`, `market.strategy.signal`, `news.signal`, `news.headlines`
-- **Purpose:** aggregates outputs from all other plugins into one summary view
-
-### `config_plugin`
-- **Provides:** nothing (no capabilities)
-- **Requires:** nothing
-- **Purpose:** UI for profile management, theme editor, API key storage
-
-### `alert_engine`
-- **Provides:** nothing
-- **Subscribes to:** `market.tick`
-- **Purpose:** fires alerts when price thresholds are crossed
-
----
-
-## Infrastructure Components
-
-### Theme Engine (`theme_engine.py`)
-Reads a theme dict from the active profile and generates CSS custom property
-overrides injected into every page. Users adjust theme via the config plugin
-UI — no CSS editing required. Five built-in presets; fully customizable.
-
-### Authentication (`auth.py`)
-Single-password bcrypt authentication via session cookie. Password hash stored
-in `.env` as `JAGDASH_PASSWORD_HASH`. Generate with `python auth.py`.
-If no password is set, auth is bypassed (local development mode).
-
-### Profile System (`config_manager.py`)
-Profiles stored in `jagdash_profiles.json`. Each profile holds dashboard name,
-logo path, theme settings, plugin enable/disable state, and API keys.
-Multiple profiles supported; switch via config plugin UI.
-
----
-
-## Adding a New Plugin
-
-1. Create `plugins/your_plugin/plugin.py`
-2. Implement `manifest()` with `ui_defaults`, `handle_request()`,
-   optionally `get_ui_context()` and `register_routes()`
-3. Create `templates/partials/your_plugin.html`
-4. Create `templates/partials/your_plugin_results.html`
-5. Add any new dependencies to `requirements.txt`
-6. Restart JagDash — plugin appears in sidebar automatically
-
-**No changes to `main.py` needed.** Routes are registered via `register_routes()`.
-
-See `QUICKSTART.md` for a step-by-step walkthrough.
-See `PLUGIN_API.md` for the full API reference.
-
----
-
-## Design Principles
-
-**Plugins are domain-specific.**
-Each plugin does one thing. A plugin that fetches prices should not also compute signals.
-
-**Payloads may evolve, structure must not.**
-The request/response envelope (`status`, `data`, `message`) is fixed.
-What's inside `data` and `payload` can grow. Consumers use `.get()`.
-
-**Fail loudly within, fail gracefully outward.**
-Inside your plugin, raise freely during development. At the boundary —
-`handle_request()` — catch everything and return a proper error response.
-
-**No shared state between plugins.**
-Plugins must not write to global variables that other plugins read.
-Use events for notification, requests for data.
-
-**No changes to main.py for new plugins.**
-main.py is infrastructure. Plugin-specific routes belong in the plugin.
+└── [Any-Plugin-Suite-Directory]/   # Fully Detached, Movable Plugin Suite Folder
+    └── {plugin_name}/              # Isolated Component Workspace
+        ├── plugin.py               # Manifest Definitions, Request Handlers, and Local Route Mappings
+        ├── {plugin_name}.html      # Main View Interface Panel Component Partial Fragment
+        ├── {plugin_name}_results.html # Action/Form Post Sub-Template Target Panel View
+        └── [assets]/               # Optional Module-Specific Sub-Directories or Strategies
+Use code with caution.5. RE-BALANCED JINJA2 LOADER PRIORITY MatrixTo accommodate completely detached, multi-directory plugin packages without duplicating template tracking logic inside main.py, JagDash maps template search environments using an ordered hierarchy:Local Suite File System Loader (Highest Priority): Jinja2 checks the currently selected active plugin directories first to resolve raw filenames (e.g., {plugin_name}.html).Framework Global File System Loader: Looks inside /templates/ for base architectural components (base.html, login.html).Dynamic Prefix Redirect Interceptor: Catches old "partials/{filename}" path declarations automatically, stripping the legacy folder prefix string and routing lookups back to the active local plugin directories.6. SYSTEM PROFILE & CONFIGURATION MECHANICSA. Profiles JSON (jagdash_profiles.json)The dashboard reads tracking attributes from a central config record structure:json{
+  "active_profile": "default",
+  "profiles": {
+    "default": {
+      "dashboard_name": "My Dashboard",
+      "logo_path": "images/logo.png",
+      "theme": {
+        "preset": "dark",
+        "color_bg": "#121212"
+      },
+      "plugins": {
+        "plugin_name": {"enabled": true}
+      },
+      "api_keys": {}
+    }
+  }
+}
+Use code with caution.B. Theme EngineInstead of maintaining static design files, theme_engine.py processes raw style parameters into a dedicated live variable layout payload:Parses structural profile key mappings during execution loops.Formulates custom style property configurations targeting :root.Injects values dynamically inside a raw <style id="jagdash-theme"> block embedded within base.html.

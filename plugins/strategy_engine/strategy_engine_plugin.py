@@ -19,7 +19,67 @@ from pathlib import Path
 
 
 PLUGIN_NAME    = "Strategy Engine"
-STRATEGIES_DIR = Path(__file__).parent / "strategies"
+STRATEGIES_DIR = Path(__file__).parent.resolve() / "strategies"
+#STRATEGIES_DIR = "strategies"
+
+
+# ============================================================
+# DYNAMIC STRATEGY DISCOVERY LOOPER
+# ============================================================
+STRATEGIES = {}
+_strategy_meta = {}
+_discovery_errors = []
+
+def _discover_and_load_strategies():
+    """Scans the co-located strategies directory and loads all .py strategy modules."""
+    global STRATEGIES, _strategy_meta, _discovery_errors
+    STRATEGIES.clear()
+    _strategy_meta.clear()
+    _discovery_errors.clear()
+
+    if not STRATEGIES_DIR.exists() or not STRATEGIES_DIR.is_dir():
+        print(f"  [Strategy Engine Warning] Directory missing: {STRATEGIES_DIR}")
+        return
+
+    import sys
+    import importlib.util
+
+    # Inject strategies folder into sys.path to handle local asset tracking smoothly
+    if str(STRATEGIES_DIR) not in sys.path:
+        sys.path.insert(0, str(STRATEGIES_DIR))
+
+    for item in STRATEGIES_DIR.iterdir():
+        if item.is_file() and item.suffix == ".py" and not item.name.startswith(("_", ".")):
+            strategy_name = item.stem
+            try:
+                # Dynamic Module Compilation Pipeline
+                spec = importlib.util.spec_from_file_location(strategy_name, str(item))
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    
+                    # Store the module reference 
+                    STRATEGIES[strategy_name] = mod
+                    
+                    # Capture manifest metadata declarations inside individual strategy files if they exist
+                    if hasattr(mod, "get_meta"):
+                        _strategy_meta[strategy_name] = mod.get_meta()
+                    elif hasattr(mod, "meta"):
+                        _strategy_meta[strategy_name] = mod.meta if isinstance(mod.meta, dict) else {}
+                    else:
+                        _strategy_meta[strategy_name] = {
+                            "type": "Trend",
+                            "description": f"Custom strategy module auto-loaded from {item.name}",
+                            "source": "local",
+                            "file": item.name
+                        }
+            except Exception as e:
+                err_msg = f"Failed to parse strategy file '{item.name}': {e}"
+                print(f"  [Strategy Engine Error] {err_msg}")
+                _discovery_errors.append(err_msg)
+
+# Execute the local files scan immediately on loading the plugin script module
+_discover_and_load_strategies()
 
 
 # ============================================================
@@ -105,7 +165,7 @@ def _build_strategy_list() -> list[dict]:
 
 
 def get_ui_context(context):
-    """Return data needed by partials/strategy_engine.html.
+    """Return data needed by strategy_engine.html.
 
     Settings (symbol, interval, period, source) are read from market.settings
     and displayed read-only. The user adjusts them in market_data plugin.
@@ -113,8 +173,8 @@ def get_ui_context(context):
     The strategy table is permanent (always rendered), so this also
     supplies the "nothing has run yet" defaults for every column —
     these are the same keys that /run and /reload fill in with real
-    results via partials/strategy_table_rows.html and
-    partials/strategy_summary.html.
+    results via strategy_table_rows.html and
+    strategy_summary.html.
     """
     strategy_list = _build_strategy_list()
 
@@ -945,9 +1005,9 @@ def register_routes(app, templates, get_host):
         if errs:
             msg += f", {errs} issue(s) — check strategy list."
 
-        rows_html      = _render("partials/strategy_table_rows.html", **_default_table_state())
-        summary_html   = _render("partials/strategy_summary.html", **_default_summary_state())
-        discovery_html = _render("partials/strategy_discovery_errors.html", errors=_discovery_errors)
+        rows_html      = _render("strategy_table_rows.html", **_default_table_state())
+        summary_html   = _render("strategy_summary.html", **_default_summary_state())
+        discovery_html = _render("strategy_discovery_errors.html", errors=_discovery_errors)
 
         return HTMLResponse(
             f'<div class="success-msg">{msg}</div>'
@@ -1043,7 +1103,7 @@ def register_routes(app, templates, get_host):
                     market_meta     = data.get("market_meta", {})
 
         rows_html = _render(
-            "partials/strategy_table_rows.html",
+            "strategy_table_rows.html",
             strategies=_build_strategy_list(),
             selected_strategies=selected_strategies,
             weights=weights,
@@ -1053,7 +1113,7 @@ def register_routes(app, templates, get_host):
             strategy_errors=strategy_errors,
         )
         summary_html = _render(
-            "partials/strategy_summary.html",
+            "strategy_summary.html",
             error=summary_error,
             combined=combined,
             market_meta=market_meta,

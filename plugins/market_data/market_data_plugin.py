@@ -335,7 +335,7 @@ def register_routes(app, templates, get_host):
 
         return templates.TemplateResponse(
             request=request,
-            name="partials/market_data_results.html",
+            name="market_data_results.html",
             context={
                 "symbol":       symbol,
                 "source_label": meta.get("source_label", SOURCE_LABELS.get(source, source)),

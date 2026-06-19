@@ -52,6 +52,17 @@
     </section>
 
     <!-- ================================================================
+         SUITE CONTROL - PLUGIN SUITE: PLUGIN DIRECTORY CONTROL
+         ================================================================ -->
+    <div class="plugin-control">
+        <label for="plugin-directory">Plugin Directory</label>
+        <input type="text" id="plugin-directory" name="plugin-directory"
+               value="{{ active_profile.get('plugin-directory', '') }}"
+               placeholder="e.g. plugins" class="text-input">
+    </div>
+
+
+    <!-- ================================================================
          DASHBOARD SETTINGS
          ================================================================ -->
     <section class="config-section">

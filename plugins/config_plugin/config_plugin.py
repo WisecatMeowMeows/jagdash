@@ -2,6 +2,7 @@
 # render_ui() deleted. All config logic now in main.py routes.
 # get_ui_context() provides data to the Jinja2 template.
 
+#plugin_dir = "plugins"
 
 def manifest():
     return {
@@ -28,4 +29,5 @@ def get_ui_context(context):
         "cmc_key_set":    bool(cmc_key),
         "theme":          theme,
         "preset_names":   preset_names(),
+     #   "plugin_dir":     plugin_dir
     }
