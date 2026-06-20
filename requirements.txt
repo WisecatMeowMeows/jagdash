@@ -12,15 +12,3 @@ itsdangerous        # required by Starlette SessionMiddleware
 # --- Authentication ---
 bcrypt              # password hashing for login
 
-# --- Data & finance ---
-pandas
-numpy
-yfinance
-pyyaml
-
-# --- News & HTTP ---
-requests            # used by news_scanner
-
-# --- charting --- this is a NiteTrader dependency, not JagDash
-#curl -L -o static/lightweight-charts.standalone.production.js \
-#  https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js

@@ -1,3 +1,0 @@
-YAML
-mistake file
-this is intended to throw an error

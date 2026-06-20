@@ -6,7 +6,7 @@
 
 def manifest():
     return {
-        "name":     "config_plugin",
+        "name":     "config",
         "version":  "1.1",
         "provides": [],
         "requires": []

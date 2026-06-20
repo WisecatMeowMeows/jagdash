@@ -2,45 +2,41 @@ import os
 import importlib.util
 import fnmatch
 
-#PLUGIN_DIR = "plugins"  //this is the default, was fixed directory in the past
-
-
 def load_plugins(plugin_dir):
     plugins = []
 
     if not plugin_dir:
-        plugin_dir = "plugins"  #set to default. assuming that at minmum the config_plugin will be here
-        #a better option is to use a built-in file browser here to force the user to pick a plugin directory
+        plugin_dir = "plugins"
 
     if not os.path.exists(plugin_dir):
         return plugins
 
-    filename = None
+    # Process absolute layout referencing cleanly
+    abs_plugin_dir = os.path.abspath(plugin_dir)
 
-    #find filename that ends in plugin.py
-    for folder in os.listdir(plugin_dir):
-        #print("folder=", folder)
-        for file in os.listdir(os.path.join(plugin_dir, folder)):
-            #print("examining filename=", file)
-            if fnmatch.fnmatch(file,'*plugin.py'):
-                filename = file
-                #print("added filename=", filename)
-                plugin_path = os.path.join(
-                    plugin_dir,
-                    folder,
-                    filename
-                )
-                #break
+    for folder in os.listdir(abs_plugin_dir):
+        folder_path = os.path.join(abs_plugin_dir, folder)
+        
+        # FIX: ONLY look inside if this item is a real directory!
+        # This skips requirements.txt, README.md, or hidden root assets safely.
+        if os.path.isdir(folder_path) and not folder.startswith((".", "__")):
+            
+            for file in os.listdir(folder_path):
+                if fnmatch.fnmatch(file, '*plugin.py'):
+                    plugin_path = os.path.join(folder_path, file)
 
-                if os.path.exists(plugin_path):
-                    spec = importlib.util.spec_from_file_location(
-                        folder,
-                        plugin_path
-                    )
+                    if os.path.exists(plugin_path):
+                        try:
+                            spec = importlib.util.spec_from_file_location(
+                                folder,
+                                plugin_path
+                            )
 
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-
-                    plugins.append(module)
-
+                            module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
+                            plugins.append(module)
+                            print(f"  [Suite Loader] Successfully loaded plugin: {folder}")
+                        except Exception as e:
+                            print(f"  [Suite Loader Error] Failed to compile {folder}: {e}")
+                            
     return plugins
